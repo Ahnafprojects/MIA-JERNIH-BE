@@ -1,0 +1,419 @@
+// Skema basis data Jernih.
+//
+// Dipasang lebih dulu di repo supaya tiga orang tidak merancang tiga versi
+// skema yang berbeda lalu bertabrakan saat migrasi. Perubahan skema harus
+// lewat PR tersendiri dan disepakati — semua modul bergantung pada ini.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// Prisma 7: URL koneksi TIDAK lagi ditulis di sini. Untuk `prisma migrate`
+// URL dibaca dari `prisma.config.ts`; untuk runtime, PrismaClient menerima
+// adapter (lihat `src/lib/prisma.ts`).
+datasource db {
+  provider = "postgresql"
+}
+
+enum Peran {
+  WARGA
+  OPERATOR
+  SUPERVISOR
+  TEKNISI
+}
+
+enum StatusRelay {
+  AKTIF
+  NONAKTIF
+}
+
+enum StatusToken {
+  AKTIF
+  TERPAKAI
+  KEDALUWARSA
+  DIBATALKAN
+}
+
+enum SumberToken {
+  PEMBELIAN
+  ADMIN
+  DEMO
+}
+
+enum JenisTransaksi {
+  BELI
+  ISI_TOKEN
+}
+
+enum StatusTransaksi {
+  MENUNGGU
+  LUNAS
+  GAGAL
+  KEDALUWARSA
+}
+
+enum MetodeBayar {
+  QRIS
+  VA
+  EWALLET
+  GERAI
+}
+
+enum StatusTiket {
+  BARU
+  DIPROSES
+  SELESAI
+}
+
+enum StatusInsiden {
+  BARU
+  DITUGASKAN
+  SELESAI
+}
+
+enum Keparahan {
+  RINGAN
+  SEDANG
+  BERAT
+}
+
+// ─────────────────────────────── Akun ────────────────────────────────
+
+model Pengguna {
+  id              String    @id @default(cuid())
+  nama            String
+  email           String    @unique
+  kataSandiHash   String
+  hp              String?
+  alamat          String?
+  peran           Peran     @default(WARGA)
+  zonaId          String?
+  golonganId      String?
+  emailTerverifikasiPada DateTime?
+  aktif           Boolean   @default(true)
+  /// Ambang peringatan saldo milik pengguna (liter). Terpisah dari alarm
+  /// meter yang diatur firmware (≤5 L, ≤2 L, 0 L).
+  ambangPeringatanL Int     @default(100)
+  dibuatPada      DateTime  @default(now())
+  diubahPada      DateTime  @updatedAt
+
+  zona            Zona?        @relation(fields: [zonaId], references: [id])
+  golongan        Golongan?    @relation(fields: [golonganId], references: [id])
+  meter           Meter[]
+  sesi            Sesi[]
+  token           Token[]      @relation("PemilikToken")
+  tokenDibuat     Token[]      @relation("PembuatToken")
+  transaksi       Transaksi[]
+  tiket           Tiket[]      @relation("PelaporTiket")
+  tiketDitangani  Tiket[]      @relation("TeknisiTiket")
+  insidenDitangani Insiden[]
+  notifikasi      Notifikasi[]
+  auditLog        AuditLog[]
+  broadcast       Broadcast[]
+  kodeEmail       KodeEmail[]
+
+  @@index([peran])
+  @@index([zonaId])
+}
+
+model Sesi {
+  id           String   @id @default(cuid())
+  penggunaId   String
+  refreshHash  String   @unique
+  perangkat    String   @default("")
+  ip           String   @default("")
+  terakhirPada DateTime @default(now())
+  dicabutPada  DateTime?
+  kedaluwarsaPada DateTime
+  dibuatPada   DateTime @default(now())
+
+  pengguna Pengguna @relation(fields: [penggunaId], references: [id], onDelete: Cascade)
+
+  @@index([penggunaId])
+}
+
+/// Kode 6 digit lewat email. TIDAK ADA OTP SMS di mana pun.
+model KodeEmail {
+  id          String   @id @default(cuid())
+  penggunaId  String?
+  email       String
+  kodeHash    String
+  tujuan      String   // DAFTAR | MASUK_BARU | LUPA_SANDI | UBAH_EMAIL
+  percobaan   Int      @default(0)
+  dipakaiPada DateTime?
+  kedaluwarsaPada DateTime
+  dibuatPada  DateTime @default(now())
+
+  pengguna Pengguna? @relation(fields: [penggunaId], references: [id], onDelete: Cascade)
+
+  @@index([email, tujuan])
+}
+
+// ─────────────────────────── Jaringan & meter ────────────────────────
+
+model Zona {
+  id        String   @id @default(cuid())
+  nama      String   @unique
+  /// Batas wilayah sebagai GeoJSON Polygon, dipakai layer peta.
+  batasGeo  Json?
+  dibuatPada DateTime @default(now())
+
+  pengguna Pengguna[]
+  meter    Meter[]
+}
+
+model Meter {
+  id            String      @id              // contoh: P001
+  node          String      @unique          // contoh: NODE.04 — identitas MQTT
+  serial        String      @unique
+  label         String      @default("")
+  alamat        String      @default("")
+  zonaId        String?
+  penggunaId    String?
+  lat           Float?
+  lng           Float?
+
+  /// Saldo yang dipegang METER. Hanya berubah saat meter menerapkan token
+  /// dan melapor balik — JANGAN dinaikkan saat pembelian, karena tokennya
+  /// bisa terpakai dua kali.
+  saldoL        Decimal     @default(0) @db.Decimal(14, 2)
+  volumeTotalL  Decimal     @default(0) @db.Decimal(14, 2)
+  debitLpm      Decimal     @default(0) @db.Decimal(10, 2)
+  relay         StatusRelay @default(NONAKTIF)
+  /// Saklar fisik (rocker) di badan meter. Relay hanya aktif bila saldo > 0
+  /// DAN saklar ON — dua hal berbeda, tampilkan terpisah.
+  saklarOn      Boolean     @default(true)
+  daring        Boolean     @default(false)
+  terakhirTerlihat DateTime?
+
+  /// Ambang alarm firmware, dalam liter.
+  ambangPeringatanL Decimal  @default(5) @db.Decimal(10, 2)
+  ambangKritisL     Decimal  @default(2) @db.Decimal(10, 2)
+  kalibrasi         Decimal  @default(6.55) @db.Decimal(10, 2)
+  panjangToken      Int      @default(10)
+  versiFirmware     String   @default("")
+  rssi              Int?
+
+  dibuatPada    DateTime    @default(now())
+  diubahPada    DateTime    @updatedAt
+
+  zona     Zona?      @relation(fields: [zonaId], references: [id])
+  pengguna Pengguna?  @relation(fields: [penggunaId], references: [id])
+  riwayat  RiwayatMeter[]
+  token    Token[]
+  transaksi Transaksi[]
+  tiket    Tiket[]
+  insiden  Insiden[]
+  pemakaian EmberPemakaian[]
+
+  @@index([zonaId])
+  @@index([penggunaId])
+  @@index([daring])
+}
+
+/// Deret waktu telemetri meter. Satu baris per laporan dari ESP32.
+model RiwayatMeter {
+  id       String   @id @default(cuid())
+  meterId  String
+  saldoL   Decimal  @db.Decimal(14, 2)
+  debitLpm Decimal  @db.Decimal(10, 2)
+  volumeL  Decimal  @db.Decimal(14, 2)
+  saklarOn Boolean
+  relay    StatusRelay
+  buzzer   String   @default("off") // off | warn | crit | on
+  ts       DateTime @default(now())
+
+  meter Meter @relation(fields: [meterId], references: [id], onDelete: Cascade)
+
+  @@index([meterId, ts])
+}
+
+/// Agregat pemakaian per jam — sumber grafik dan peta panas 7×24 jam.
+/// Menghitungnya dari RiwayatMeter setiap kali grafik dibuka terlalu mahal.
+model EmberPemakaian {
+  id       String   @id @default(cuid())
+  meterId  String
+  jam      DateTime
+  volumeL  Decimal  @db.Decimal(14, 2)
+
+  meter Meter @relation(fields: [meterId], references: [id], onDelete: Cascade)
+
+  @@unique([meterId, jam])
+  @@index([jam])
+}
+
+// ────────────────────────── Token & pembayaran ───────────────────────
+
+model Golongan {
+  id             String  @id @default(cuid())
+  nama           String  @unique
+  tarifPerLiter  Decimal @db.Decimal(10, 2)
+
+  pengguna Pengguna[]
+}
+
+model Token {
+  id            String      @id @default(cuid())
+  /// Hash kode lengkap. Kode asli TIDAK disimpan — satu-satunya salinan utuh
+  /// ada di email struk dan di jawaban pembelian, sekali saja.
+  kodeHash      String      @unique
+  /// Lima digit pertama, untuk ditampilkan bertopeng: "48217 •••••".
+  kodeAwalan    String
+  nilaiL        Decimal     @db.Decimal(14, 2)
+  status        StatusToken @default(AKTIF)
+  sumber        SumberToken @default(PEMBELIAN)
+  meterId       String?
+  pemilikId     String?
+  pembuatId     String?
+  transaksiId   String?
+  dipakaiPada   DateTime?
+  /// Meter yang BENAR-BENAR memakainya. Bisa berbeda dari `meterId` kalau
+  /// ada kesalahan penugasan — simpan keduanya, jangan ditimpa.
+  dipakaiMeterId String?
+  kedaluwarsaPada DateTime
+  dibuatPada    DateTime    @default(now())
+
+  meter     Meter?     @relation(fields: [meterId], references: [id])
+  pemilik   Pengguna?  @relation("PemilikToken", fields: [pemilikId], references: [id])
+  pembuat   Pengguna?  @relation("PembuatToken", fields: [pembuatId], references: [id])
+  transaksi Transaksi? @relation(fields: [transaksiId], references: [id])
+
+  @@index([pemilikId, status])
+  @@index([meterId])
+}
+
+model Transaksi {
+  id          String          @id                 // nomor invoice
+  penggunaId  String
+  meterId     String
+  jenis       JenisTransaksi
+  volumeL     Decimal         @db.Decimal(14, 2)
+  jumlahRp    Decimal         @db.Decimal(14, 2)
+  metode      MetodeBayar
+  status      StatusTransaksi @default(MENUNGGU)
+  qrString    String?
+  nomorVa     String?
+  kodeGerai   String?
+  refEksternal String?
+  dibayarPada DateTime?
+  kedaluwarsaPada DateTime?
+  dibuatPada  DateTime        @default(now())
+
+  pengguna Pengguna @relation(fields: [penggunaId], references: [id])
+  meter    Meter    @relation(fields: [meterId], references: [id])
+  token    Token[]
+
+  @@index([penggunaId, status])
+}
+
+// ─────────────────────── Pengaduan, insiden, SLA ─────────────────────
+
+model Tiket {
+  id          String      @id @default(cuid())
+  /// Nomor publik yang dipakai warga untuk melacak TANPA login.
+  nomor       String      @unique              // contoh: LP-2026-10-0384
+  pelaporId   String
+  meterId     String?
+  kategori    String
+  deskripsi   String
+  fotoUrl     String[]
+  lat         Float?
+  lng         Float?
+  status      StatusTiket @default(BARU)
+  teknisiId   String?
+  /// Batas waktu tanggap. Dasar perhitungan "rapor kinerja" publik.
+  slaJatuhTempo DateTime
+  selesaiPada DateTime?
+  penilaian   Int?
+  dibuatPada  DateTime    @default(now())
+  diubahPada  DateTime    @updatedAt
+
+  pelapor Pengguna  @relation("PelaporTiket", fields: [pelaporId], references: [id])
+  teknisi Pengguna? @relation("TeknisiTiket", fields: [teknisiId], references: [id])
+  meter   Meter?    @relation(fields: [meterId], references: [id])
+
+  @@index([status])
+  @@index([nomor])
+}
+
+model Insiden {
+  id         String        @id @default(cuid())
+  meterId    String?
+  tipe       String        // kebocoran | sensor offline | tekanan | dll
+  keparahan  Keparahan     @default(SEDANG)
+  judul      String
+  detail     String        @default("")
+  status     StatusInsiden @default(BARU)
+  teknisiId  String?
+  dibukaPada DateTime      @default(now())
+  ditutupPada DateTime?
+
+  meter   Meter?    @relation(fields: [meterId], references: [id])
+  teknisi Pengguna? @relation(fields: [teknisiId], references: [id])
+
+  @@index([status])
+  @@index([meterId])
+}
+
+// ───────────────────── Notifikasi, broadcast, audit ──────────────────
+
+model Notifikasi {
+  id          String   @id @default(cuid())
+  penggunaId  String
+  jenis       String   // SALDO | TOKEN | KEBOCORAN | TIKET | INFO
+  judul       String
+  teks        String
+  tautan      String?
+  broadcastId String?
+  dibacaPada  DateTime?
+  dibuatPada  DateTime @default(now())
+
+  pengguna  Pengguna   @relation(fields: [penggunaId], references: [id], onDelete: Cascade)
+  broadcast Broadcast? @relation(fields: [broadcastId], references: [id])
+
+  @@index([penggunaId, dibacaPada])
+}
+
+model Broadcast {
+  id          String   @id @default(cuid())
+  target      String   // SEMUA | ZONA | SALDO_RENDAH | TUNGGAKAN
+  zona        String?
+  judul       String
+  pesan       String
+  /// Kanal DATAR, sama seperti kolomnya di sini. Bentuk bersarang
+  /// `kanal:{push,email}` hanya untuk BADAN permintaan POST.
+  kanalPush   Boolean  @default(true)
+  kanalEmail  Boolean  @default(false)
+  dijadwalkanPada DateTime?
+  dikirimPada DateTime?
+  penerima    Int      @default(0)
+  dibuka      Int      @default(0)
+  pembuatId   String
+  dibuatPada  DateTime @default(now())
+
+  pembuat    Pengguna     @relation(fields: [pembuatId], references: [id])
+  notifikasi Notifikasi[]
+}
+
+/// Append-only. Tidak ada endpoint ubah atau hapus — inilah yang membuat
+/// klaim akuntabilitas di halaman publik bisa dipercaya.
+model AuditLog {
+  id        String   @id @default(cuid())
+  aktorId   String?
+  aktorNama String   @default("")
+  aksi      String
+  detail    String   @default("")
+  tipe      String   // RELAY | TOKEN | AKSES | KONFIGURASI | BROADCAST
+  ip        String   @default("")
+  ts        DateTime @default(now())
+
+  aktor Pengguna? @relation(fields: [aktorId], references: [id])
+
+  @@index([tipe, ts])
+}
+
+model Pengaturan {
+  kunci      String   @id
+  nilai      Json
+  diubahPada DateTime @updatedAt
+}
