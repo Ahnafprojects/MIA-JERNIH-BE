@@ -20,7 +20,6 @@ Dibuat untuk **Web In Action — Multimedia In Action (MIA) 2026**, subtema
 | Token sesi | JWT (jose) — akses 15 menit, refresh 30 hari |
 | Email | Nodemailer (SMTP) |
 | Realtime | WebSocket (`ws`) |
-| IoT | MQTT ke meter ESP32 |
 | Tes | Vitest + Supertest |
 
 Frontend terpisah: [MIA-JERNIH-FE](https://github.com/Ahnafprojects/MIA-JERNIH-FE)
@@ -91,7 +90,7 @@ prisma/
 - [ ] Endpoint publik (status layanan, lacak tiket, rapor kinerja, statistik)
 - [ ] Meter, token, pembayaran, tiket, insiden
 - [ ] Endpoint konsol petugas
-- [ ] Realtime WebSocket & jembatan MQTT
+- [ ] Realtime WebSocket
 
 Rincian tiap modul ada di **Issues** repo ini.
 

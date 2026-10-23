@@ -34,11 +34,6 @@ const skema = z.object({
   SMTP_PASS: z.string().default(""),
   MAIL_FROM: z.string().default("Jernih <noreply@jernih.id>"),
 
-  MQTT_ENABLED: bool(false),
-  MQTT_URL: z.string().default(""),
-  MQTT_USERNAME: z.string().default(""),
-  MQTT_PASSWORD: z.string().default(""),
-
   /**
    * Mode peragaan: pembelian langsung lunas dan kode token ikut dikirim,
    * tanpa QRIS dan tanpa menunggu webhook penyedia.

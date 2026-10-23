@@ -11,4 +11,3 @@ process.env.DATABASE_URL ??=
   "postgresql://jernih:jernih@localhost:5432/jernih_test?schema=public";
 process.env.JWT_SECRET ??= "kunci-uji-minimal-tiga-puluh-dua-karakter-aman";
 process.env.MAIL_ENABLED = "false";
-process.env.MQTT_ENABLED = "false";
