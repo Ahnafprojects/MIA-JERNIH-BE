@@ -18,6 +18,16 @@ import { ZodError } from "zod";
 import { env } from "./env.js";
 import { AppError } from "./lib/errors.js";
 import { log } from "./lib/log.js";
+import { authRouter } from "./rute/auth.js";
+import { publikRouter } from "./rute/publik.js";
+import { meterRouter } from "./rute/meter.js";
+import { tokenRouter } from "./rute/token.js";
+import { bayarRouter } from "./rute/bayar.js";
+import { tiketRouter } from "./rute/tiket.js";
+import { insidenRouter } from "./rute/insiden.js";
+import { konsolRouter } from "./rute/konsol.js";
+import { geoRouter } from "./rute/geo.js";
+import { notifikasiRouter } from "./rute/notifikasi.js";
 
 export function buatApp(): Express {
   const app = express();
@@ -60,10 +70,22 @@ export function buatApp(): Express {
     res.json({ ok: true, service: "jernih-api", ts: new Date().toISOString() });
   });
 
-  // TODO(tim): daftarkan router di sini — lihat issue di repo ini.
-  // app.use("/api", authRouter);
-  // app.use("/api/publik", publikRouter);
-  // app.use("/api/admin", adminRouter);
+  /*
+   * Urutannya penting: `/api/publik` didaftarkan SEBELUM router lain yang
+   * memasang penjaga sesi, supaya halaman transparansi tidak pernah ikut
+   * terkunci. Pernah terjadi di versi sebelumnya — seluruh aplikasi di balik
+   * login, dan yang dilihat juri cuma formulir masuk.
+   */
+  app.use("/api/publik", publikRouter);
+  app.use("/api/auth", authRouter);
+  app.use("/api/meter", meterRouter);
+  app.use("/api/token", tokenRouter);
+  app.use("/api/bayar", bayarRouter);
+  app.use("/api/tiket", tiketRouter);
+  app.use("/api/insiden", insidenRouter);
+  app.use("/api/notifikasi", notifikasiRouter);
+  app.use("/api/admin", konsolRouter);
+  app.use("/api/admin", geoRouter);
 
   app.use((_req, res) => {
     res.status(404).json({
