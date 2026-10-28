@@ -1,0 +1,38 @@
+services:
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: jernih
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: jernih
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    # Tidak dipublish ke host — app akses lewat nama service "db"
+
+  app:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:5300:5300"
+    environment:
+      NODE_ENV: production
+      PORT: 5300
+      DATABASE_URL: postgresql://jernih:${DB_PASSWORD}@db:5432/jernih
+      JWT_SECRET: ${JWT_SECRET}
+      CORS_ORIGIN: ${CORS_ORIGIN}
+      ACCESS_TTL_MENIT: ${ACCESS_TTL_MENIT:-15}
+      REFRESH_TTL_HARI: ${REFRESH_TTL_HARI:-30}
+      MAIL_ENABLED: ${MAIL_ENABLED:-false}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASS: ${SMTP_PASS:-}
+      MAIL_FROM: ${MAIL_FROM:-Jernih <noreply@jernih.id>}
+      PAYMENT_AUTO_SETTLE: ${PAYMENT_AUTO_SETTLE:-true}
+      SEED_PASSWORD: ${SEED_PASSWORD:-admin123}
+    depends_on:
+      - db
+
+volumes:
+  pgdata:

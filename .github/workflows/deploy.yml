@@ -1,0 +1,45 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install cloudflared
+        run: |
+          curl -fsSL https://pkg.cloudflare.com/cloudflare-main.gpg \
+            | sudo gpg --dearmor -o /usr/share/keyrings/cloudflare-main.gpg
+          echo "deb [signed-by=/usr/share/keyrings/cloudflare-main.gpg] \
+            https://pkg.cloudflare.com/cloudflared any main" \
+            | sudo tee /etc/apt/sources.list.d/cloudflared.list
+          sudo apt-get update && sudo apt-get install -y cloudflared
+
+      - name: Setup SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/jernih_ed25519
+          chmod 600 ~/.ssh/jernih_ed25519
+          cat >> ~/.ssh/config << 'EOF'
+          Host ssh.ahnaf.cloud
+            User jernih
+            IdentityFile ~/.ssh/jernih_ed25519
+            IdentitiesOnly yes
+            StrictHostKeyChecking no
+            ProxyCommand cloudflared access ssh --hostname %h
+          EOF
+
+      - name: Deploy
+        run: |
+          ssh ssh.ahnaf.cloud << 'REMOTE'
+          set -e
+          if [ ! -d ~/app ]; then
+            git clone https://github.com/Ahnafprojects/MIA-JERNIH-BE.git ~/app
+          fi
+          cd ~/app
+          git pull origin main
+          docker compose up -d --build
+          docker compose exec -T app sh -c "npx prisma migrate deploy"
+          REMOTE
