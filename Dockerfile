@@ -15,4 +15,4 @@ COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/prisma ./prisma
 COPY --from=builder /app/prisma.config.ts ./prisma.config.ts
 EXPOSE 5300
-CMD ["node", "dist/server.js"]
+CMD ["node", "dist/src/server.js"]
