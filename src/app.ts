@@ -18,7 +18,7 @@ import { ZodError } from "zod";
 import { env } from "./env.js";
 import { AppError } from "./lib/errors.js";
 import { log } from "./lib/log.js";
-import { authRouter } from "./rute/auth.js";
+import { authRouter, meRouter } from "./rute/auth.js";
 import { publikRouter } from "./rute/publik.js";
 import { meterRouter } from "./rute/meter.js";
 import { tokenRouter } from "./rute/token.js";
@@ -78,6 +78,7 @@ export function buatApp(): Express {
    */
   app.use("/api/publik", publikRouter);
   app.use("/api/auth", authRouter);
+  app.use("/api/me", meRouter);
   app.use("/api/meter", meterRouter);
   app.use("/api/token", tokenRouter);
   app.use("/api/bayar", bayarRouter);
