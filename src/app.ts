@@ -22,7 +22,12 @@ import { authRouter, meRouter } from "./rute/auth.js";
 import { publikRouter } from "./rute/publik.js";
 import { meterRouter } from "./rute/meter.js";
 import { tokenRouter, adminTokenRouter } from "./rute/token.js";
-import { bayarRouter } from "./rute/bayar.js";
+import {
+  bayarRouter,
+  paketRouter,
+  pembayaranRouter,
+  transaksiRouter,
+} from "./rute/bayar.js";
 import { tiketRouter } from "./rute/tiket.js";
 import { insidenRouter } from "./rute/insiden.js";
 import { konsolRouter } from "./rute/konsol.js";
@@ -81,6 +86,9 @@ export function buatApp(): Express {
   app.use("/api/me", meRouter);
   app.use("/api/meter", meterRouter);
   app.use("/api/token", tokenRouter);
+  app.use("/api/paket", paketRouter);
+  app.use("/api/pembayaran", pembayaranRouter);
+  app.use("/api/transaksi", transaksiRouter);
   app.use("/api/bayar", bayarRouter);
   app.use("/api/tiket", tiketRouter);
   app.use("/api/insiden", insidenRouter);
