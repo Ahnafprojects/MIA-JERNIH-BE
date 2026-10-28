@@ -40,6 +40,10 @@ jobs:
           fi
           cd ~/app
           git pull origin main
+          # Salin example jadi docker-compose.yml kalau belum ada
+          if [ ! -f docker-compose.yml ]; then
+            cp docker-compose.example.yml docker-compose.yml
+          fi
           docker compose up -d --build
           docker compose exec -T app sh -c "npx prisma migrate deploy"
           REMOTE
