@@ -9,7 +9,6 @@ import { prisma } from "../lib/prisma.js";
 import { notFound } from "../lib/errors.js";
 import { wajibMasuk, wajibPeran } from "../middleware/sesi.js";
 
-export const insidenRouter: Router = Router();
 export const adminInsidenRouter: Router = Router();
 
 /* ── Deteksi Insiden Otomatis ────────────────────────────────────────── */
@@ -164,7 +163,7 @@ adminInsidenRouter.get("/", async (req: Request, res: Response, next: NextFuncti
 
 adminInsidenRouter.patch("/:id", async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    const id = req.params.id as string;
     if (!id) throw notFound("ID insiden tidak valid.");
 
     const { status, teknisiId, detail } = skemaUbahInsiden.parse(req.body);
