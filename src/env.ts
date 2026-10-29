@@ -27,6 +27,13 @@ const skema = z.object({
   /** Asal yang boleh memanggil API, dipisah koma. */
   CORS_ORIGIN: z.string().default("http://localhost:3000"),
 
+  /**
+   * Alamat depan portal, dipakai menyusun tautan di email (atur ulang sandi).
+   * Sebelumnya https://jernih.id ditulis langsung di rute/auth.ts, sehingga
+   * email dari staging dan lokal mengirim pengguna ke situs produksi.
+   */
+  APP_URL: z.string().default("http://localhost:3000"),
+
   MAIL_ENABLED: bool(false),
   SMTP_HOST: z.string().default(""),
   SMTP_PORT: z.coerce.number().int().default(587),
