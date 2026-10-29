@@ -29,7 +29,7 @@ import {
   transaksiRouter,
 } from "./rute/bayar.js";
 import { tiketRouter, adminTiketRouter } from "./rute/tiket.js";
-import { insidenRouter, adminInsidenRouter } from "./rute/insiden.js";
+import { adminInsidenRouter } from "./rute/insiden.js";
 import { konsolRouter } from "./rute/konsol.js";
 import { geoRouter } from "./rute/geo.js";
 import { notifikasiRouter } from "./rute/notifikasi.js";
@@ -91,7 +91,6 @@ export function buatApp(): Express {
   app.use("/api/transaksi", transaksiRouter);
   app.use("/api/bayar", bayarRouter);
   app.use("/api/tiket", tiketRouter);
-  app.use("/api/insiden", insidenRouter);
   app.use("/api/notifikasi", notifikasiRouter);
   app.use("/api/admin/token", adminTokenRouter);
   app.use("/api/admin/tiket", adminTiketRouter);
