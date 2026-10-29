@@ -48,7 +48,7 @@ notifikasiRouter.get("/", async (req: Request, res: Response, next: NextFunction
 
 notifikasiRouter.patch("/:id/baca", async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    const id = req.params.id as string;
     if (!id) throw notFound("ID notifikasi tidak valid.");
 
     const penggunaId = req.pengguna!.id;

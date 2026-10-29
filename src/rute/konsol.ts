@@ -175,7 +175,7 @@ konsolRouter.get("/pelanggan", async (req: Request, res: Response, next: NextFun
 
 konsolRouter.get("/pelanggan/:id", async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    const id = req.params.id as string;
     if (!id) throw notFound("ID pelanggan tidak valid.");
 
     const pelanggan = await prisma.pengguna.findUnique({
@@ -254,7 +254,7 @@ const skemaEmailPelanggan = z.object({
 
 konsolRouter.post("/pelanggan/:id/email", async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    const id = req.params.id as string;
     if (!id) throw notFound("ID pelanggan tidak valid.");
 
     const pelanggan = await prisma.pengguna.findUnique({
