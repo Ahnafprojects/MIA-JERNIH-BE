@@ -858,7 +858,7 @@ meRouter.get("/sesi", wajibMasuk, async (req: Request, res: Response, next: Next
 meRouter.delete("/sesi/:id", wajibMasuk, async (req: Request, res: Response, next: NextFunction) => {
   try {
     const penggunaId = req.pengguna!.id;
-    const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    const id = req.params.id as string;
     if (!id) {
       throw notFound("Sesi tidak ditemukan.");
     }
