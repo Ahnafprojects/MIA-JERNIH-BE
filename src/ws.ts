@@ -6,7 +6,8 @@ import type { IncomingMessage, Server as HttpServer } from "node:http";
 import type { Duplex } from "node:stream";
 import { WebSocketServer, WebSocket } from "ws";
 import pkg from "@prisma/client";
-const { Peran } = pkg;
+import type { Peran } from "@prisma/client";
+const { Peran: PeranEnum } = pkg;
 import { bacaAkses, type IsiAkses } from "./lib/auth.js";
 import { prisma } from "./lib/prisma.js";
 import { log } from "./lib/log.js";
@@ -106,7 +107,7 @@ export class JernihWebSocketManager {
       if (r.startsWith("meter:")) {
         const meterId = r.slice(6);
         if (!meterId) continue;
-        if (sesi.peran === Peran.WARGA) {
+        if (sesi.peran === PeranEnum.WARGA) {
           const m = await prisma.meter.findUnique({
             where: { id: meterId },
             select: { penggunaId: true },
@@ -119,7 +120,7 @@ export class JernihWebSocketManager {
           allowedRooms.push(r);
         }
       } else if (r.startsWith("admin:")) {
-        if (sesi.peran !== Peran.WARGA) {
+        if (sesi.peran !== PeranEnum.WARGA) {
           allowedRooms.push(r);
         }
       }
@@ -217,7 +218,7 @@ export class JernihWebSocketManager {
           const dashboardClients = this.roomMap.get("admin:dashboard");
           if (dashboardClients && dashboardClients.size > 0) {
             const [totalPelanggan, totalMeter, meterOnline] = await Promise.all([
-              prisma.pengguna.count({ where: { peran: Peran.WARGA } }),
+              prisma.pengguna.count({ where: { peran: PeranEnum.WARGA } }),
               prisma.meter.count(),
               prisma.meter.count({ where: { daring: true } }),
             ]);
