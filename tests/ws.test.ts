@@ -123,4 +123,65 @@ describe("Realtime WebSocket (Issue #12)", () => {
     wsManager.tutup();
     await new Promise<void>((resolve) => server.close(() => resolve()));
   });
+
+  it("siaran kirimKeRoom sampai ke pelanggan yang join room meter miliknya", async () => {
+    const app = buatApp();
+    const server = createServer(app);
+    const wsManager = new JernihWebSocketManager();
+    wsManager.pasangKeServer(server);
+
+    await new Promise<void>((resolve) => server.listen(0, resolve));
+    const address = server.address() as { port: number };
+    const port = address.port;
+
+    const warga = await prisma.pengguna.create({
+      data: {
+        nama: "Warga WS Broadcast",
+        email: `ws_bc_${Date.now()}@test.id`,
+        kataSandiHash: "hash123",
+        peran: Peran.WARGA,
+      },
+    });
+
+    const meterId = `MTR_WS_BC_${Date.now()}`;
+    await prisma.meter.create({
+      data: {
+        id: meterId,
+        node: `node_${meterId}`,
+        serial: `ser_${meterId}`,
+        penggunaId: warga.id,
+      },
+    });
+
+    const token = await buatAkses({ sub: warga.id, peran: Peran.WARGA });
+
+    const ws = new WebSocket(
+      `ws://127.0.0.1:${port}/ws?token=${token}&rooms=meter:${meterId}`,
+    );
+
+    const receivedEvents: any[] = [];
+    await new Promise<void>((resolve, reject) => {
+      ws.on("message", (raw) => {
+        const parsed = JSON.parse(raw.toString());
+        receivedEvents.push(parsed);
+        if (parsed.event === "hello") {
+          wsManager.kirimKeRoom(`meter:${meterId}`, "meter:relay", {
+            meterId,
+            relay: "AKTIF",
+          });
+        } else if (parsed.event === "meter:relay") {
+          ws.close();
+          resolve();
+        }
+      });
+      ws.on("error", (err) => reject(err));
+    });
+
+    expect(receivedEvents.some((e) => e.event === "meter:relay")).toBe(true);
+    const relayEvent = receivedEvents.find((e) => e.event === "meter:relay");
+    expect(relayEvent.data.relay).toBe("AKTIF");
+
+    wsManager.tutup();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  });
 });
