@@ -49,6 +49,13 @@ const skema = z.object({
    */
   PAYMENT_AUTO_SETTLE: bool(true),
 
+  /**
+   * Mengizinkan penukaran token demo 1111 (+5L) dan 2222 (+10L) lewat API.
+   * Di produksi harus bernilai false agar pelanggan tidak dapat menambah saldo
+   * gratis tanpa transaksi.
+   */
+  DEMO_TOKEN_ENABLED: bool(false),
+
   SEED_PASSWORD: z.string().default("admin123"),
 });
 

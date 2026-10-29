@@ -11,6 +11,7 @@ import { badRequest, forbidden, notFound } from "../lib/errors.js";
 import { wajibMasuk, wajibPeran } from "../middleware/sesi.js";
 import { hashKode } from "../lib/auth.js";
 import { lcdUtama } from "./meter.js";
+import { env } from "../env.js";
 
 export const tokenRouter: Router = Router();
 export const adminTokenRouter: Router = Router();
@@ -24,7 +25,19 @@ interface CatatanGagalToken {
 
 const mapGagalPengguna = new Map<string, CatatanGagalToken>();
 
+function bersihkanCatatanKedaluwarsa() {
+  if (mapGagalPengguna.size > 50) {
+    const sekarang = Date.now();
+    for (const [id, c] of mapGagalPengguna.entries()) {
+      if (sekarang > c.terkunciSampai && c.terkunciSampai > 0) {
+        mapGagalPengguna.delete(id);
+      }
+    }
+  }
+}
+
 function cekKunciPengguna(penggunaId: string) {
+  bersihkanCatatanKedaluwarsa();
   const catatan = mapGagalPengguna.get(penggunaId);
   if (!catatan) return;
 
@@ -41,6 +54,7 @@ function cekKunciPengguna(penggunaId: string) {
 }
 
 function catatGagal(penggunaId: string) {
+  bersihkanCatatanKedaluwarsa();
   const catatan = mapGagalPengguna.get(penggunaId) ?? {
     gagal: 0,
     terkunciSampai: 0,
@@ -97,6 +111,10 @@ tokenRouter.post("/tukar", wajibMasuk, async (req: Request, res: Response, next:
     // 1. Dukungan Token Demo Firmware: 1111 (+5 L) dan 2222 (+10 L)
     // Tidak memakai kuota percobaan salah
     if (kode === "1111" || kode === "2222") {
+      if (!env().DEMO_TOKEN_ENABLED) {
+        throw badRequest("TOKEN_INVALID", "Kode token tidak valid.");
+      }
+
       const tambahL = kode === "1111" ? 5 : 10;
       const meter = await prisma.meter.findUnique({
         where: { id: meterId },
@@ -109,10 +127,22 @@ tokenRouter.post("/tukar", wajibMasuk, async (req: Request, res: Response, next:
       }
 
       const saldoBaru = Number(meter.saldoL) + tambahL;
-      await prisma.meter.update({
-        where: { id: meterId },
-        data: { saldoL: saldoBaru },
-      });
+      await prisma.$transaction([
+        prisma.meter.update({
+          where: { id: meterId },
+          data: { saldoL: saldoBaru },
+        }),
+        prisma.auditLog.create({
+          data: {
+            aktorId: penggunaId,
+            aktorNama: req.pengguna!.id,
+            aksi: "TOKEN_DEMO_DITUKAR",
+            detail: `Penukaran token demo ${kode} senilai ${tambahL} L pada meter ${meterId}. Saldo baru: ${saldoBaru} L`,
+            tipe: "TOKEN",
+            ip: req.ip ?? "127.0.0.1",
+          },
+        }),
+      ]);
 
       resetGagal(penggunaId);
 

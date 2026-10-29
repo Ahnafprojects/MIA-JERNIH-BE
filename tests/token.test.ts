@@ -86,6 +86,11 @@ describe("Token: aturan, generator, dan penukaran (Issue #4)", () => {
     expect(res2222.status).toBe(200);
     expect(res2222.body.nilaiL).toBe(10);
     expect(res2222.body.saldoBaruL).toBe(35);
+
+    const auditDemo = await prisma.auditLog.findFirst({
+      where: { aktorId: warga.id, aksi: "TOKEN_DEMO_DITUKAR" },
+    });
+    expect(auditDemo).toBeDefined();
   });
 
   it("penukaran kedua ditolak dengan tanggal pemakaian", async () => {
