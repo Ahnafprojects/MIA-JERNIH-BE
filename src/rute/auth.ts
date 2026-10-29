@@ -33,21 +33,61 @@ import { env } from "../env.js";
 export const authRouter: Router = Router();
 export const meRouter: Router = Router();
 
-/* ── Rate Limiter Khusus Masuk: 20 per menit per IP ──────────────────── */
+/* ── Rate Limiter ────────────────────────────────────────────────────── */
 
-const limiterMasuk = rateLimit({
-  windowMs: 60_000,
-  limit: 20,
-  standardHeaders: "draft-7",
-  legacyHeaders: false,
-  handler: (_req, res) =>
-    res.status(429).json({
-      error: {
-        code: "RATE_LIMIT",
-        message: "Terlalu banyak percobaan masuk. Coba lagi dalam 1 menit.",
-      },
-    }),
-});
+const buatLimiter = (limit: number, pesan: string) =>
+  rateLimit({
+    windowMs: 60_000,
+    limit,
+    standardHeaders: "draft-7",
+    legacyHeaders: false,
+    handler: (_req, res) =>
+      res.status(429).json({ error: { code: "RATE_LIMIT", message: pesan } }),
+  });
+
+const limiterMasuk = buatLimiter(
+  20,
+  "Terlalu banyak percobaan masuk. Coba lagi dalam 1 menit.",
+);
+
+/**
+ * Untuk endpoint yang MEMVERIFIKASI kredensial pendek (kode 6 digit, token
+ * atur ulang). Sebelumnya tidak ada satu pun limiter di sini, sehingga kode
+ * 6 digit bisa disisir habis selama masa berlakunya 10 menit — terbukti 60
+ * tebakan berturut-turut tanpa satu pun ditahan, lalu kode benar tetap
+ * memberi sesi penuh.
+ */
+const limiterKode = buatLimiter(
+  10,
+  "Terlalu banyak percobaan kode. Coba lagi dalam 1 menit.",
+);
+
+/** Untuk endpoint yang MEMICU pengiriman email, supaya tidak jadi relai spam. */
+const limiterKirim = buatLimiter(
+  5,
+  "Terlalu banyak permintaan kode. Coba lagi dalam 1 menit.",
+);
+
+/**
+ * Batas tebakan per kode, ditegakkan di tingkat basis data.
+ *
+ * Kolom `KodeEmail.percobaan` sudah ada dan sudah dinaikkan tiap tebakan
+ * salah, tapi TIDAK PERNAH dibaca di mana pun — jadi penghitungnya hanya
+ * mencatat serangan tanpa menghentikannya. Rate limiter per IP saja tidak
+ * cukup: penyerang bisa berganti IP, sedangkan batas ini menempel pada
+ * kodenya sendiri. Nilai 5 menyamai aturan penukaran token di `token.ts`.
+ */
+const MAKS_PERCOBAAN_KODE = 5;
+
+/** Melempar kalau kode sudah terlalu sering ditebak. */
+function pastikanBelumHabisPercobaan(percobaan: number) {
+  if (percobaan >= MAKS_PERCOBAAN_KODE) {
+    throw unauthorized(
+      "Kode ini sudah terlalu sering dicoba. Minta kode baru.",
+      "KODE_TERKUNCI",
+    );
+  }
+}
 
 /* ── Skema Validasi Zod ──────────────────────────────────────────────── */
 
@@ -84,7 +124,15 @@ const skemaLupa = z.object({
 });
 
 const skemaAturUlang = z.object({
-  token: z.string().trim().min(6, "Token atur ulang tidak valid."),
+  /*
+   * Minimal 32 karakter — BUKAN 6.
+   *
+   * `buatRefresh()` menghasilkan 32 byte base64url (43 karakter), jadi batas
+   * ini tidak menolak token yang sah. Yang ditolaknya adalah nilai sependek
+   * kode 6 digit: dengan `min(6)` sebelumnya, kode email bisa dipakai sebagai
+   * token atur ulang dan ruang tebakannya hanya sejuta.
+   */
+  token: z.string().trim().min(32, "Token atur ulang tidak valid."),
   kataSandiBaru: z.string().min(8, "Kata sandi baru minimal 8 karakter."),
 });
 
@@ -180,6 +228,7 @@ authRouter.post("/daftar", async (req: Request, res: Response, next: NextFunctio
 
 authRouter.post(
   "/verifikasi-email",
+  limiterKode,
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { email, kode } = skemaVerifikasi.parse(req.body);
@@ -200,6 +249,8 @@ authRouter.post(
       if (kodeRecord.kedaluwarsaPada.getTime() < Date.now()) {
         throw badRequest("KODE_KEDALUWARSA", "Kode verifikasi sudah kedaluwarsa.");
       }
+
+      pastikanBelumHabisPercobaan(kodeRecord.percobaan);
 
       const cocok = kodeCocok(kodeRecord.kodeHash, kode);
       if (!cocok) {
@@ -266,6 +317,7 @@ authRouter.post(
 
 authRouter.post(
   "/kirim-ulang-kode",
+  limiterKirim,
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { email, tujuan } = skemaKirimUlang.parse(req.body);
@@ -293,27 +345,46 @@ authRouter.post(
         where: { email },
       });
 
-      const kode = buatKodeEmail();
-      const kodeHash = hashKode(kode);
-      const kedaluwarsaPada = new Date(Date.now() + 10 * 60 * 1000);
+      /*
+       * "lupa" TIDAK BOLEH memakai kode 6 digit.
+       *
+       * Sebelumnya cabang ini menyimpan kode 6 digit lalu mengirim tautan
+       * `.../atur-ulang?t=<kode>`. Karena `hashKode()` dan `hashRefresh()`
+       * sama-sama sha256 polos, kode itu diterima utuh oleh `/atur-ulang` —
+       * yang mencari hash di SELURUH tabel tanpa menyebut email siapa pun.
+       * Hasilnya: penyerang cukup menebak 6 digit, tanpa tahu email korban,
+       * untuk mengambil alih akun. Terbukti bisa.
+       *
+       * Sekarang cabang ini memakai token acak 32 byte dengan masa 30 menit,
+       * persis seperti POST /api/auth/lupa.
+       */
+      const kedaluwarsaPada = new Date(
+        Date.now() + (tujuan === "lupa" ? 30 : 10) * 60 * 1000,
+      );
+      const rahasia = tujuan === "lupa" ? buatRefresh() : buatKodeEmail();
 
       await prisma.kodeEmail.create({
         data: {
           penggunaId: pengguna?.id ?? null,
           email,
-          kodeHash,
+          kodeHash: tujuan === "lupa" ? hashRefresh(rahasia) : hashKode(rahasia),
           tujuan,
           kedaluwarsaPada,
         },
       });
 
       if (tujuan === "daftar") {
-        await kirimEmail(emailVerifikasiDaftar(email, kode));
+        await kirimEmail(emailVerifikasiDaftar(email, rahasia));
       } else if (tujuan === "masuk") {
-        await kirimEmail(emailMasukBaru(email, kode));
+        await kirimEmail(emailMasukBaru(email, rahasia));
       } else if (tujuan === "lupa") {
+        // Nama parameternya `token`, sama dengan yang dibaca /atur-ulang.
+        // Sebelumnya `?t=` — tidak cocok dengan apa pun di sisi mana pun.
         await kirimEmail(
-          emailLupaSandi(email, `https://jernih.id/atur-ulang?t=${kode}`),
+          emailLupaSandi(
+            email,
+            `${env().APP_URL}/atur-ulang?token=${encodeURIComponent(rahasia)}`,
+          ),
         );
       }
 
@@ -449,6 +520,7 @@ authRouter.post(
 
 authRouter.post(
   "/masuk/kode",
+  limiterKode,
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { email, kode } = skemaMasukKode.parse(req.body);
@@ -469,6 +541,10 @@ authRouter.post(
       if (kodeRecord.kedaluwarsaPada.getTime() < Date.now()) {
         throw unauthorized("Kode verifikasi sudah kedaluwarsa.", "KODE_KEDALUWARSA");
       }
+
+      // Endpoint ini memberi SESI PENUH kalau kodenya benar, jadi batas
+      // tebakan di sini yang paling menentukan.
+      pastikanBelumHabisPercobaan(kodeRecord.percobaan);
 
       if (!kodeCocok(kodeRecord.kodeHash, kode)) {
         await prisma.kodeEmail.update({
@@ -534,7 +610,7 @@ authRouter.post(
 
 /* ── 6. POST /api/auth/lupa ─────────────────────────────────────────── */
 
-authRouter.post("/lupa", async (req: Request, res: Response, next: NextFunction) => {
+authRouter.post("/lupa", limiterKirim, async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { email } = skemaLupa.parse(req.body);
 
@@ -555,7 +631,7 @@ authRouter.post("/lupa", async (req: Request, res: Response, next: NextFunction)
         },
       });
 
-      const tautan = `https://jernih.id/atur-ulang?token=${token}`;
+      const tautan = `${env().APP_URL}/atur-ulang?token=${encodeURIComponent(token)}`;
       await kirimEmail(emailLupaSandi(pengguna.email, tautan));
     }
 
@@ -568,7 +644,7 @@ authRouter.post("/lupa", async (req: Request, res: Response, next: NextFunction)
 
 /* ── 7. POST /api/auth/atur-ulang ────────────────────────────────────── */
 
-authRouter.post("/atur-ulang", async (req: Request, res: Response, next: NextFunction) => {
+authRouter.post("/atur-ulang", limiterKode, async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { token, kataSandiBaru } = skemaAturUlang.parse(req.body);
     const tokenHash = hashRefresh(token);
