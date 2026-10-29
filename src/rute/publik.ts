@@ -71,10 +71,22 @@ publikRouter.get("/status-layanan", async (_req: Request, res: Response, next: N
       const insidenUtama = insidenZona[0];
       if (insidenUtama) {
         sejak = insidenUtama.dibukaPada.toISOString();
-        keterangan = insidenUtama.judul;
-        perkiraanPulih = new Date(
-          insidenUtama.dibukaPada.getTime() + 4 * 60 * 60 * 1000,
-        ).toISOString();
+        keterangan =
+          insidenZona.length > 1
+            ? `${insidenUtama.judul} (+${insidenZona.length - 1} laporan lain)`
+            : insidenUtama.judul;
+
+        /*
+         * `perkiraanPulih` dihilangkan, bukan ditebak.
+         *
+         * Sebelumnya selalu "dibuka + 4 jam" untuk insiden apa pun — pipa
+         * induk pecah dan keran bocor mendapat janji yang sama. Perkiraan
+         * yang meleset di portal publik lebih merugikan daripada tidak ada
+         * perkiraan: warga menunggu berdasarkan angka yang tidak pernah
+         * punya dasar. Kalau nanti operator bisa mengisinya, ambil dari
+         * kolom di tabel Insiden, bukan dari konstanta di sini.
+         */
+        perkiraanPulih = undefined;
 
         if (insidenUtama.status === "DITUGASKAN") {
           statusZona = "perbaikan";
@@ -84,7 +96,17 @@ publikRouter.get("/status-layanan", async (_req: Request, res: Response, next: N
           gangguanCount++;
         }
 
-        pelangganTerdampak = z.meter.filter((m) => m.penggunaId !== null).length;
+        /*
+         * Hanya meter yang benar-benar punya insiden terbuka. Sebelumnya
+         * SELURUH pelanggan di zona dihitung terdampak, sehingga satu
+         * keluhan tunggal terbaca sebagai gangguan sekawasan.
+         */
+        const meterTerdampak = new Set(
+          insidenZona.map((i) => i.meterId).filter((id): id is string => !!id),
+        );
+        pelangganTerdampak = z.meter.filter(
+          (m) => m.penggunaId !== null && meterTerdampak.has(m.id),
+        ).length;
       } else {
         normalCount++;
       }
@@ -279,13 +301,45 @@ publikRouter.get("/kinerja", async (req: Request, res: Response, next: NextFunct
           : undefined,
     }));
 
-    const labels = ["Pekan 1", "Pekan 2", "Pekan 3", "Pekan 4"];
-    const points = [
-      Math.max(80, (ketepatanSlaPct ?? 90) - 4),
-      Math.max(82, (ketepatanSlaPct ?? 90) - 2),
-      Math.min(98, (ketepatanSlaPct ?? 90) + 1),
-      ketepatanSlaPct ?? 92,
-    ];
+    /*
+     * TREN DIHITUNG DARI TIKET SUNGGUHAN, BUKAN DIKARANG.
+     *
+     * Versi sebelumnya membuat empat titik dari satu angka dengan offset
+     * tetap (-4, -2, +1, 0) lalu menyajikannya sebagai "Ketepatan SLA" per
+     * pekan. Itu grafik yang isinya tidak pernah terjadi. Di portal yang
+     * seluruh gagasannya transparansi, angka karangan adalah cacat yang
+     * paling mahal — bukan sekadar tidak rapi.
+     *
+     * Pekan dihitung mundur dari sekarang. Pekan tanpa tiket selesai
+     * bernilai `null`, bukan ditambal angka: "belum ada data" dan "100%"
+     * adalah dua pernyataan yang sangat berbeda.
+     */
+    const MS_PEKAN = 7 * 24 * 60 * 60 * 1000;
+    const jumlahPekan = Math.min(8, Math.max(1, Math.ceil(rentangHari / 7)));
+    const labels: string[] = [];
+    const points: Array<number | null> = [];
+
+    for (let p = jumlahPekan - 1; p >= 0; p--) {
+      const akhir = new Date(Date.now() - p * MS_PEKAN);
+      const mulai = new Date(akhir.getTime() - MS_PEKAN);
+      const selesaiPekan = tiketList.filter(
+        (t) =>
+          t.status === "SELESAI" &&
+          t.selesaiPada &&
+          t.selesaiPada > mulai &&
+          t.selesaiPada <= akhir,
+      );
+      const tepat = selesaiPekan.filter(
+        (t) => t.selesaiPada && t.selesaiPada <= t.slaJatuhTempo,
+      ).length;
+
+      labels.push(p === 0 ? "Pekan ini" : `${p} pekan lalu`);
+      points.push(
+        selesaiPekan.length > 0
+          ? Number(((tepat / selesaiPekan.length) * 100).toFixed(1))
+          : null,
+      );
+    }
 
     res.status(200).json({
       periode: {
@@ -330,7 +384,18 @@ publikRouter.get("/statistik", async (req: Request, res: Response, next: NextFun
       ((riwayatVolume._sum.volumeTotalL?.toNumber() ?? 0) / 1000).toFixed(1),
     );
 
-    const nrwRataPct = 14.8;
+    /*
+     * NRW (air tak berekening) TIDAK dilaporkan sampai bisa dihitung.
+     *
+     * Sebelumnya nilainya dipatok `14.8` dan disajikan sebagai statistik
+     * jaringan. Menghitungnya sungguhan butuh angka air yang DIPRODUKSI
+     * (keluaran instalasi/induk), dan itu belum ada di basis data mana pun —
+     * yang tercatat hanya yang terpakai di meter pelanggan.
+     *
+     * `null` jujur dan bisa disembunyikan antarmuka; angka karangan tidak
+     * bisa ditarik kembali setelah dikutip orang.
+     */
+    const nrwRataPct: number | null = null;
 
     const zonaList = await prisma.zona.findMany({
       include: {
@@ -371,8 +436,10 @@ publikRouter.get("/peta", async (_req: Request, res: Response, next: NextFunctio
     const insidenTerbuka = await prisma.insiden.findMany({
       where: { status: { in: ["BARU", "DITUGASKAN"] } },
       include: {
+        // `lat`/`lng` sengaja TIDAK diambil. Data yang tidak pernah masuk ke
+        // proses ini tidak bisa bocor karena salah tulis di kemudian hari.
         meter: {
-          select: { lat: true, lng: true, zonaId: true },
+          select: { zonaId: true },
         },
       },
     });
@@ -393,21 +460,35 @@ publikRouter.get("/peta", async (_req: Request, res: Response, next: NextFunctio
       }
     }
 
+    /*
+     * INSIDEN DIRINGKAS PER ZONA, BUKAN DITITIKKAN DI RUMAH ORANG.
+     *
+     * Versi sebelumnya memancarkan satu titik per insiden pada koordinat
+     * meternya — yaitu koordinat rumah pelanggan — di endpoint yang bisa
+     * diakses siapa saja tanpa login. Itu bertentangan dengan janji di kepala
+     * berkas ini ("Tidak ada data pribadi (PII): … koordinat rumah"), dan
+     * cukup untuk menunjukkan rumah mana yang sedang bermasalah.
+     *
+     * Peta operator (`src/rute/geo.ts`) tetap memberi koordinat persis —
+     * di sana memang perlu, dan sudah dikunci peran OPERATOR/SUPERVISOR/
+     * TEKNISI. Yang publik cukup tahu zona mana yang terdampak dan berapa
+     * banyak insidennya.
+     */
+    const jumlahPerZona = new Map<string, number>();
     for (const i of insidenTerbuka) {
-      if (i.meter?.lat && i.meter?.lng) {
-        features.push({
-          type: "Feature",
-          geometry: {
-            type: "Point",
-            coordinates: [i.meter.lng, i.meter.lat],
-          },
-          properties: {
-            id: i.id,
-            tipe: i.tipe,
-            keparahan: i.keparahan,
-            judul: i.judul,
-          },
-        });
+      const zonaId = i.meter?.zonaId;
+      if (!zonaId) continue;
+      jumlahPerZona.set(zonaId, (jumlahPerZona.get(zonaId) ?? 0) + 1);
+    }
+
+    for (const z of zonaList) {
+      const jumlah = jumlahPerZona.get(z.id);
+      if (!jumlah) continue;
+      const fitur = features.find(
+        (f) => (f.properties as { id?: string } | undefined)?.id === z.id,
+      );
+      if (fitur) {
+        (fitur.properties as Record<string, unknown>).insidenTerbuka = jumlah;
       }
     }
 
