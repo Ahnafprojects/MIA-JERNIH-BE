@@ -73,11 +73,23 @@ export class JernihWebSocketManager {
       .map((r) => r.trim())
       .filter(Boolean);
 
-    // Filter kamar (room) sesuai hak akses
+    /*
+     * Filter kamar: DEFAULT TOLAK.
+     *
+     * Versi sebelumnya ditutup `else { allowedRooms.push(r) }` — apa pun yang
+     * bukan `meter:` atau `admin:` diterima untuk siapa pun. Dua akibatnya:
+     * prefix baru yang ditambahkan nanti otomatis terbuka untuk warga tanpa
+     * ada yang menyadarinya, dan nama kamar sembarang dari query string bisa
+     * dibuat tanpa batas sehingga `roomMap` tumbuh sesuai kemauan penyerang.
+     *
+     * Sekarang kamar yang tidak dikenali diabaikan, dan jumlahnya dibatasi.
+     */
+    const MAKS_ROOM = 20;
     const allowedRooms: string[] = [];
-    for (const r of requestedRooms) {
+    for (const r of requestedRooms.slice(0, MAKS_ROOM)) {
       if (r.startsWith("meter:")) {
         const meterId = r.slice(6);
+        if (!meterId) continue;
         if (sesi.peran === Peran.WARGA) {
           const m = await prisma.meter.findUnique({
             where: { id: meterId },
@@ -94,9 +106,9 @@ export class JernihWebSocketManager {
         if (sesi.peran !== Peran.WARGA) {
           allowedRooms.push(r);
         }
-      } else {
-        allowedRooms.push(r);
       }
+      // Prefix lain: sengaja tidak diizinkan. Tambahkan cabangnya di sini
+      // kalau memang ada kamar baru, supaya hak aksesnya ikut dipikirkan.
     }
 
     this.wss.handleUpgrade(req, socket, head, (ws) => {
