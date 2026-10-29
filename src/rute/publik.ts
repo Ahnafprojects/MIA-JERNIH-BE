@@ -139,9 +139,19 @@ publikRouter.get("/status-layanan", async (_req: Request, res: Response, next: N
 
 /* ── 2. GET /api/publik/lacak/:nomor ─────────────────────────────────── */
 
+/**
+ * Pelacakan pengaduan warga tanpa autentikasi.
+ *
+ * Keputusan desain: Endpoint ini sengaja dibuat terbuka demi transparansi
+ * publik dan kemudahan warga melacak status aduan air mereka tanpa hambatan
+ * login. Perlindungan privasi (PII) dijamin di tingkat respon: seluruh data
+ * pribadi pelapor (nama, email, nomor HP, foto dokumen, koordinat rumah)
+ * dibersihkan secara total — yang disajikan hanya status tahapan, kategori,
+ * dan estimasi kepatuhan SLA.
+ */
 publikRouter.get("/lacak/:nomor", async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const nomor = Array.isArray(req.params.nomor) ? req.params.nomor[0] : req.params.nomor;
+    const nomor = req.params.nomor as string;
     if (!nomor) {
       throw notFound("Nomor tiket tidak valid.");
     }
