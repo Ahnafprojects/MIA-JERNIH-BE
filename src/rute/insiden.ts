@@ -6,6 +6,7 @@ import { Router, type Request, type Response, type NextFunction } from "express"
 import { z } from "zod";
 import pkg from "@prisma/client";
 const { Keparahan, StatusInsiden, StatusRelay } = pkg;
+type StatusInsiden = (typeof StatusInsiden)[keyof typeof StatusInsiden];
 import { prisma } from "../lib/prisma.js";
 import { notFound } from "../lib/errors.js";
 import { wajibMasuk, wajibPeran } from "../middleware/sesi.js";

@@ -6,6 +6,7 @@ import { Router, type Request, type Response, type NextFunction } from "express"
 import { z } from "zod";
 import pkg from "@prisma/client";
 const { StatusTiket } = pkg;
+type StatusTiket = (typeof StatusTiket)[keyof typeof StatusTiket];
 import { prisma } from "../lib/prisma.js";
 import { badRequest, forbidden, notFound } from "../lib/errors.js";
 import { wajibMasuk, wajibPeran } from "../middleware/sesi.js";
