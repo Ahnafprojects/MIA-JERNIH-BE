@@ -181,4 +181,29 @@ describe("Pengaduan Tiket & Perhitungan SLA (Issue #6)", () => {
     expect(resDetail.body.tiket.status).toBe("DIPROSES");
     expect(resDetail.body.tiket.kronologi.length).toBeGreaterThanOrEqual(2);
   });
+
+  it("foto dengan skema tidak aman (misal javascript:) ditolak dengan 400", async () => {
+    const warga = await prisma.pengguna.create({
+      data: {
+        nama: "Pelapor XSS",
+        email: `xss_${Date.now()}@test.id`,
+        kataSandiHash: "hash123",
+        peran: "WARGA",
+      },
+    });
+
+    const token = await buatAkses({ sub: warga.id, peran: "WARGA" });
+
+    const res = await request(app)
+      .post("/api/tiket")
+      .set("Authorization", `Bearer ${token}`)
+      .send({
+        kategori: "kebocoran pipa",
+        deskripsi: "Pipa depan bocor",
+        foto: ["javascript:alert(1)"],
+      });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error.code).toBe("VALIDASI_GAGAL");
+  });
 });
