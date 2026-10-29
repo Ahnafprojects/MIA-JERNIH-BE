@@ -5,7 +5,8 @@
 import type { IncomingMessage, Server as HttpServer } from "node:http";
 import type { Duplex } from "node:stream";
 import { WebSocketServer, WebSocket } from "ws";
-import { Peran } from "@prisma/client";
+import pkg from "@prisma/client";
+const { Peran } = pkg;
 import { bacaAkses, type IsiAkses } from "./lib/auth.js";
 import { prisma } from "./lib/prisma.js";
 import { log } from "./lib/log.js";

@@ -3,7 +3,8 @@
  * Sesuai spesifikasi Issue #10.
  */
 import { Router, type Request, type Response, type NextFunction } from "express";
-import { StatusInsiden } from "@prisma/client";
+import pkg from "@prisma/client";
+const { StatusInsiden } = pkg;
 import { prisma } from "../lib/prisma.js";
 import { wajibMasuk, wajibPeran } from "../middleware/sesi.js";
 

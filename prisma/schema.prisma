@@ -5,8 +5,7 @@
 // lewat PR tersendiri dan disepakati — semua modul bergantung pada ini.
 
 generator client {
-  provider = "prisma-client"
-  output   = "../node_modules/@prisma/client"
+  provider = "prisma-client-js"
 }
 
 // Prisma 7: URL koneksi TIDAK lagi ditulis di sini. Untuk `prisma migrate`

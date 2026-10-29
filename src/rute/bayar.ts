@@ -5,13 +5,8 @@
 import { Router, type Request, type Response, type NextFunction } from "express";
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { z } from "zod";
-import {
-  JenisTransaksi,
-  StatusToken,
-  StatusTransaksi,
-  SumberToken,
-  type Transaksi,
-} from "@prisma/client";
+import pkg, { type Transaksi } from "@prisma/client";
+const { JenisTransaksi, StatusToken, StatusTransaksi, SumberToken } = pkg;
 import { prisma } from "../lib/prisma.js";
 import { badRequest, forbidden, notFound } from "../lib/errors.js";
 import { wajibMasuk } from "../middleware/sesi.js";

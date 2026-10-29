@@ -4,7 +4,8 @@
  */
 import { Router, type Request, type Response, type NextFunction } from "express";
 import { z } from "zod";
-import { Peran, StatusInsiden, StatusRelay, type Prisma } from "@prisma/client";
+import pkg, { type Prisma } from "@prisma/client";
+const { Peran, StatusInsiden, StatusRelay } = pkg;
 import { prisma } from "../lib/prisma.js";
 import { notFound } from "../lib/errors.js";
 import { wajibMasuk, wajibPeran } from "../middleware/sesi.js";
