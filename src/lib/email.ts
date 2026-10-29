@@ -89,6 +89,27 @@ export async function kirimEmail(opsi: OpsiKirimEmail): Promise<boolean> {
 
 /* ── Template pembungkus ─────────────────────────────────────────────── */
 
+/**
+ * Meloloskan teks agar aman disisipkan ke HTML email.
+ *
+ * Sebelumnya tidak ada satu pun pelolosan di berkas ini, padahal nilai yang
+ * disisipkan mencakup catatan petugas dan isi siaran — keduanya teks bebas.
+ * Satu `<a href="…">` di dalam catatan menghasilkan tautan asing di dalam
+ * email yang terlihat resmi dari Jernih; itu bahan phishing yang sangat baik,
+ * dan korbannya adalah pelanggan yang memang sedang menunggu kabar.
+ *
+ * Kutip tunggal dan ganda ikut diloloskan karena beberapa nilai juga masuk
+ * ke dalam atribut.
+ */
+export function amanHtml(nilai: string | null | undefined): string {
+  return (nilai ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
 function bungkusTemplate(judul: string, kontenHtml: string): string {
   // Warna hex inline digunakan secara eksplisit demi kompatibilitas klien email
   return `<!DOCTYPE html>
@@ -96,7 +117,7 @@ function bungkusTemplate(judul: string, kontenHtml: string): string {
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>${judul}</title>
+  <title>${amanHtml(judul)}</title>
 </head>
 <body style="margin: 0; padding: 0; background-color: #f4f5f7; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #1f2937;">
   <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="background-color: #f4f5f7; padding: 24px 0;">
@@ -153,7 +174,7 @@ export function emailMasukBaru(email: string, kode6Digit: string): OpsiKirimEmai
   const html = bungkusTemplate(
     subjek,
     `<h2 style="margin-top: 0; font-size: 18px; color: #111827;">Percobaan Masuk Perangkat Baru</h2>
-     <p>Kami mendeteksi aktivitas masuk dari peramban atau perangkat baru untuk akun <strong>${email}</strong>.</p>
+     <p>Kami mendeteksi aktivitas masuk dari peramban atau perangkat baru untuk akun <strong>${amanHtml(email)}</strong>.</p>
      <p>Gunakan kode verifikasi berikut untuk mengonfirmasi akses Anda:</p>
      <div style="background-color: #fef2f2; border: 1px dashed #ef4444; border-radius: 6px; padding: 16px; text-align: center; margin: 24px 0;">
        <span style="font-size: 32px; font-weight: 700; letter-spacing: 6px; color: #b91c1c; font-family: monospace;">${kode6Digit}</span>
@@ -171,9 +192,9 @@ export function emailLupaSandi(email: string, tautanAturUlang: string): OpsiKiri
     `<h2 style="margin-top: 0; font-size: 18px; color: #111827;">Permintaan Atur Ulang Kata Sandi</h2>
      <p>Kami menerima permintaan untuk menyetel ulang kata sandi akun Jernih Anda.</p>
      <div style="text-align: center; margin: 28px 0;">
-       <a href="${tautanAturUlang}" style="background-color: #0284c7; color: #ffffff; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: 600; display: inline-block;">Atur Ulang Kata Sandi</a>
+       <a href="${amanHtml(tautanAturUlang)}" style="background-color: #0284c7; color: #ffffff; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: 600; display: inline-block;">Atur Ulang Kata Sandi</a>
      </div>
-     <p style="font-size: 13px; color: #6b7280;">Tautan di atas hanya berlaku selama <strong>30 menit</strong> dan sekali pakai. Jika tombol di atas tidak berfungsi, salin tautan berikut ke peramban Anda:<br><span style="word-break: break-all; color: #0284c7;">${tautanAturUlang}</span></p>`,
+     <p style="font-size: 13px; color: #6b7280;">Tautan di atas hanya berlaku selama <strong>30 menit</strong> dan sekali pakai. Jika tombol di atas tidak berfungsi, salin tautan berikut ke peramban Anda:<br><span style="word-break: break-all; color: #0284c7;">${amanHtml(tautanAturUlang)}</span></p>`,
   );
   return { ke: email, subjek, teks, html };
 }
@@ -247,9 +268,9 @@ export function emailTiketDiperbarui(
     `<h2 style="margin-top: 0; font-size: 18px; color: #111827;">Pembaruan Pengaduan Layanan</h2>
      <p>Laporan pengaduan air Anda dengan nomor <strong>${nomorTiket}</strong> telah diperbarui oleh petugas teknis.</p>
      <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="background-color: #f9fafb; border: 1px solid #e5e7eb; border-radius: 6px; padding: 12px; margin: 16px 0; font-size: 14px;">
-       <tr><td style="padding: 4px 0; color: #6b7280;">Nomor Tiket:</td><td style="padding: 4px 0; font-weight: 600;">${nomorTiket}</td></tr>
-       <tr><td style="padding: 4px 0; color: #6b7280;">Status Baru:</td><td style="padding: 4px 0; font-weight: 700; color: #0284c7;">${statusBaru}</td></tr>
-       ${catatan ? `<tr><td style="padding: 4px 0; color: #6b7280;">Keterangan:</td><td style="padding: 4px 0;">${catatan}</td></tr>` : ""}
+       <tr><td style="padding: 4px 0; color: #6b7280;">Nomor Tiket:</td><td style="padding: 4px 0; font-weight: 600;">${amanHtml(nomorTiket)}</td></tr>
+       <tr><td style="padding: 4px 0; color: #6b7280;">Status Baru:</td><td style="padding: 4px 0; font-weight: 700; color: #0284c7;">${amanHtml(statusBaru)}</td></tr>
+       ${catatan ? `<tr><td style="padding: 4px 0; color: #6b7280;">Keterangan:</td><td style="padding: 4px 0;">${amanHtml(catatan)}</td></tr>` : ""}
      </table>
      <p style="font-size: 13px; color: #6b7280;">Lacak perkembangan pengaduan tanpa login di menu Lacak Publik Jernih.</p>`,
   );
@@ -265,9 +286,11 @@ export function emailBroadcast(
   const teks = `Halo,\n\n${judulPesan}\n\n${isiPesan}\n\nSalam,\nPDAM Jernih`;
   const html = bungkusTemplate(
     subjek,
-    `<h2 style="margin-top: 0; font-size: 18px; color: #0284c7;">${judulPesan}</h2>
+    // Diloloskan DULU, baru baris baru diubah jadi <br> — urutannya penting.
+    // Kebalikannya akan meloloskan <br> yang baru saja kita buat sendiri.
+    `<h2 style="margin-top: 0; font-size: 18px; color: #0284c7;">${amanHtml(judulPesan)}</h2>
      <div style="font-size: 15px; line-height: 1.6; margin: 16px 0; color: #374151;">
-       ${isiPesan.replace(/\n/g, "<br>")}
+       ${amanHtml(isiPesan).replace(/\n/g, "<br>")}
      </div>`,
   );
   return { ke: email, subjek, teks, html };
