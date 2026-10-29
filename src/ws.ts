@@ -14,6 +14,7 @@ export interface KlienWsMeta {
   penggunaId: string;
   peran: Peran;
   rooms: Set<string>;
+  isAlive: boolean;
 }
 
 export class JernihWebSocketManager {
@@ -21,10 +22,12 @@ export class JernihWebSocketManager {
   private klienMap = new Map<WebSocket, KlienWsMeta>();
   private roomMap = new Map<string, Set<WebSocket>>();
   private intervalTick: NodeJS.Timeout | null = null;
+  private intervalHeartbeat: NodeJS.Timeout | null = null;
 
   constructor() {
     this.wss = new WebSocketServer({ noServer: true });
     this.setupTick();
+    this.setupHeartbeat();
   }
 
   public pasangKeServer(httpServer: HttpServer) {
@@ -51,7 +54,19 @@ export class JernihWebSocketManager {
       return;
     }
 
-    const token = url.searchParams.get("token");
+    // Ambil token dari query string ?token=... atau header Sec-WebSocket-Protocol
+    let token = url.searchParams.get("token");
+    const subprotocol = req.headers["sec-websocket-protocol"];
+    if (!token && subprotocol) {
+      const parts = subprotocol.split(",").map((p) => p.trim());
+      const bearer = parts.find((p) => p.startsWith("bearer."));
+      if (bearer) {
+        token = bearer.slice(7);
+      } else if (parts[0] && parts[0].split(".").length === 3) {
+        token = parts[0];
+      }
+    }
+
     if (!token) {
       socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n");
       socket.destroy();
@@ -126,9 +141,15 @@ export class JernihWebSocketManager {
       penggunaId,
       peran,
       rooms: new Set(rooms),
+      isAlive: true,
     };
 
     this.klienMap.set(ws, meta);
+
+    ws.on("pong", () => {
+      const m = this.klienMap.get(ws);
+      if (m) m.isAlive = true;
+    });
 
     for (const r of rooms) {
       if (!this.roomMap.has(r)) {
@@ -215,11 +236,38 @@ export class JernihWebSocketManager {
     }, 3000);
   }
 
+  private setupHeartbeat() {
+    this.intervalHeartbeat = setInterval(() => {
+      for (const [ws, meta] of this.klienMap) {
+        if (!meta.isAlive) {
+          this.lepasKlien(ws);
+          ws.terminate();
+          continue;
+        }
+        meta.isAlive = false;
+        ws.ping();
+      }
+    }, 30000);
+  }
+
   public tutup() {
     if (this.intervalTick) {
       clearInterval(this.intervalTick);
       this.intervalTick = null;
     }
+    if (this.intervalHeartbeat) {
+      clearInterval(this.intervalHeartbeat);
+      this.intervalHeartbeat = null;
+    }
+    for (const [ws] of this.klienMap) {
+      try {
+        ws.terminate();
+      } catch {
+        // Abaikan galat penutupan
+      }
+    }
+    this.klienMap.clear();
+    this.roomMap.clear();
     this.wss.close();
   }
 }
