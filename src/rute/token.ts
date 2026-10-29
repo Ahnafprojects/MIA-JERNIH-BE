@@ -12,6 +12,7 @@ import { wajibMasuk, wajibPeran } from "../middleware/sesi.js";
 import { hashKode } from "../lib/auth.js";
 import { lcdUtama } from "./meter.js";
 import { env } from "../env.js";
+import { wsManager } from "../ws.js";
 
 export const tokenRouter: Router = Router();
 export const adminTokenRouter: Router = Router();
@@ -146,6 +147,12 @@ tokenRouter.post("/tukar", wajibMasuk, async (req: Request, res: Response, next:
 
       resetGagal(penggunaId);
 
+      wsManager.kirimKeRoom(`meter:${meterId}`, "meter:saldo", {
+        meterId,
+        saldoBaruL: saldoBaru,
+        tambahL,
+      });
+
       const lcd = lcdUtama({
         saldoL: saldoBaru,
         saklarOn: meter.saklarOn,
@@ -250,6 +257,12 @@ tokenRouter.post("/tukar", wajibMasuk, async (req: Request, res: Response, next:
     ]);
 
     resetGagal(penggunaId);
+
+    wsManager.kirimKeRoom(`meter:${meterId}`, "meter:saldo", {
+      meterId,
+      saldoBaruL: saldoBaru,
+      tambahL: nilaiL,
+    });
 
     const lcd = lcdUtama({
       saldoL: saldoBaru,
