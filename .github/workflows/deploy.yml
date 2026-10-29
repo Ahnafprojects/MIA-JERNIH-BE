@@ -40,7 +40,8 @@ jobs:
             git clone https://github.com/Ahnafprojects/MIA-JERNIH-BE.git ~/app
           fi
           cd ~/app
-          git pull origin main
+          git fetch origin main
+          git reset --hard origin/main
           # Salin example jadi docker-compose.yml kalau belum ada
           if [ ! -f docker-compose.yml ]; then
             cp docker-compose.example.yml docker-compose.yml
