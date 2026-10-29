@@ -10,6 +10,26 @@ services:
       - pgdata:/var/lib/postgresql/data
     # Tidak dipublish ke host — app akses lewat nama service "db"
 
+  # Basis data KHUSUS TES.
+  #
+  # `tests/setup.ts` menunjuk postgresql://…@localhost:5435/jernih_test, tapi
+  # tidak ada satu pun service yang menyediakannya dan tidak ada catatan di
+  # README. Akibatnya `npm test` pada klona bersih menggagalkan 39 dari 47 tes
+  # dengan galat Prisma yang tidak menyebut penyebab sebenarnya.
+  #
+  # Sengaja TANPA volume: isinya memang dibuang tiap kali, dan tes menyemai
+  # datanya sendiri. Ada di profil "test" supaya tidak ikut naik di produksi:
+  #   docker compose -f docker-compose.example.yml --profile test up -d db-test
+  db-test:
+    image: postgres:17-alpine
+    profiles: ["test"]
+    environment:
+      POSTGRES_USER: jernih
+      POSTGRES_PASSWORD: jernih
+      POSTGRES_DB: jernih_test
+    ports:
+      - "127.0.0.1:5435:5432"
+
   app:
     build: .
     restart: unless-stopped
@@ -21,6 +41,10 @@ services:
       DATABASE_URL: postgresql://jernih:${DB_PASSWORD}@db:5432/jernih
       JWT_SECRET: ${JWT_SECRET}
       CORS_ORIGIN: ${CORS_ORIGIN}
+      # Alamat FE, dipakai menyusun tautan atur ulang sandi di email.
+      # Tanpa baris ini nilainya jatuh ke bawaan http://localhost:3000 dan
+      # email produksi mengirim orang ke localhost.
+      APP_URL: ${APP_URL:-http://localhost:3000}
       ACCESS_TTL_MENIT: ${ACCESS_TTL_MENIT:-15}
       REFRESH_TTL_HARI: ${REFRESH_TTL_HARI:-30}
       MAIL_ENABLED: ${MAIL_ENABLED:-false}
@@ -30,6 +54,13 @@ services:
       SMTP_PASS: ${SMTP_PASS:-}
       MAIL_FROM: ${MAIL_FROM:-Jernih <noreply@jernih.id>}
       PAYMENT_AUTO_SETTLE: ${PAYMENT_AUTO_SETTLE:-true}
+      # Rahasia tanda tangan webhook. SENGAJA tanpa nilai bawaan: kalau kosong,
+      # POST /api/pembayaran/webhook menolak semua permintaan. Untuk demo yang
+      # memakai PAYMENT_AUTO_SETTLE=true, webhook memang tidak pernah dipanggil.
+      PAYMENT_WEBHOOK_SECRET: ${PAYMENT_WEBHOOK_SECRET:-}
+      # Token demo firmware 1111/2222 lewat API. Bawaannya mati; nyalakan hanya
+      # di lingkungan peragaan, karena token ini bisa ditukar berulang kali.
+      DEMO_TOKEN_ENABLED: ${DEMO_TOKEN_ENABLED:-false}
       SEED_PASSWORD: ${SEED_PASSWORD:-admin123}
     depends_on:
       - db
