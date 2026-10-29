@@ -4,6 +4,7 @@
  */
 import { Router, type Request, type Response, type NextFunction } from "express";
 import { z } from "zod";
+import rateLimit from "express-rate-limit";
 import { StatusRelay } from "@prisma/client";
 import { prisma } from "../lib/prisma.js";
 import { badRequest, forbidden, notFound } from "../lib/errors.js";
@@ -11,6 +12,20 @@ import { wajibMasuk } from "../middleware/sesi.js";
 import { log } from "../lib/log.js";
 
 export const meterRouter: Router = Router();
+
+const limiterHubungkan = rateLimit({
+  windowMs: 60_000,
+  limit: 10,
+  standardHeaders: "draft-7",
+  legacyHeaders: false,
+  handler: (_req, res) =>
+    res.status(429).json({
+      error: {
+        code: "RATE_LIMIT",
+        message: "Terlalu banyak percobaan menghubungkan meter. Coba lagi dalam 1 menit.",
+      },
+    }),
+});
 
 /* ── Titik sambung pengiriman perintah ke firmware perangkat fisik ───── */
 
@@ -81,7 +96,7 @@ meterRouter.use(wajibMasuk);
 
 meterRouter.get("/:id", async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    const id = req.params.id as string;
     if (!id) throw notFound("ID meter tidak valid.");
 
     const meter = await pastikanAksesMeter(req, id);
@@ -123,7 +138,7 @@ meterRouter.get("/:id", async (req: Request, res: Response, next: NextFunction) 
 
 meterRouter.get("/:id/live", async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    const id = req.params.id as string;
     if (!id) throw notFound("ID meter tidak valid.");
 
     const meter = await pastikanAksesMeter(req, id);
@@ -152,7 +167,7 @@ meterRouter.get("/:id/live", async (req: Request, res: Response, next: NextFunct
 
 meterRouter.get("/:id/pemakaian", async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    const id = req.params.id as string;
     if (!id) throw notFound("ID meter tidak valid.");
 
     await pastikanAksesMeter(req, id);
@@ -195,7 +210,7 @@ meterRouter.get("/:id/pemakaian", async (req: Request, res: Response, next: Next
 
 meterRouter.get("/:id/log", async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    const id = req.params.id as string;
     if (!id) throw notFound("ID meter tidak valid.");
 
     await pastikanAksesMeter(req, id);
@@ -226,7 +241,7 @@ meterRouter.get("/:id/log", async (req: Request, res: Response, next: NextFuncti
 
 meterRouter.post("/:id/relay", async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    const id = req.params.id as string;
     if (!id) throw notFound("ID meter tidak valid.");
 
     const meter = await pastikanAksesMeter(req, id);
@@ -288,7 +303,7 @@ meterRouter.post("/:id/relay", async (req: Request, res: Response, next: NextFun
 
 /* ── 6. POST /api/meter/hubungkan ────────────────────────────────────── */
 
-meterRouter.post("/hubungkan", async (req: Request, res: Response, next: NextFunction) => {
+meterRouter.post("/hubungkan", limiterHubungkan, async (req: Request, res: Response, next: NextFunction) => {
   try {
     const data = skemaHubungkan.parse(req.body);
     const targetMeter = data.meterId || data.idPelanggan || data.qr;
@@ -304,10 +319,30 @@ meterRouter.post("/hubungkan", async (req: Request, res: Response, next: NextFun
     });
 
     if (!meter) {
+      await prisma.auditLog.create({
+        data: {
+          aktorId: req.pengguna!.id,
+          aktorNama: req.pengguna!.id,
+          aksi: "METER_HUBUNGKAN_GAGAL",
+          detail: `Percobaan hubungkan meter gagal: target "${targetMeter}" tidak ditemukan.`,
+          tipe: "METER",
+          ip: req.ip ?? "127.0.0.1",
+        },
+      });
       throw notFound("Meter tidak ditemukan.");
     }
 
     if (meter.penggunaId && meter.penggunaId !== req.pengguna!.id) {
+      await prisma.auditLog.create({
+        data: {
+          aktorId: req.pengguna!.id,
+          aktorNama: req.pengguna!.id,
+          aksi: "METER_HUBUNGKAN_GAGAL",
+          detail: `Percobaan hubungkan meter gagal: meter ${meter.id} (${meter.serial}) sudah terhubung ke akun lain.`,
+          tipe: "METER",
+          ip: req.ip ?? "127.0.0.1",
+        },
+      });
       throw badRequest(
         "METER_SUDAH_TERHUBUNG",
         "Meter ini sudah terhubung ke akun pelanggan lain.",
@@ -317,6 +352,17 @@ meterRouter.post("/hubungkan", async (req: Request, res: Response, next: NextFun
     await prisma.meter.update({
       where: { id: meter.id },
       data: { penggunaId: req.pengguna!.id },
+    });
+
+    await prisma.auditLog.create({
+      data: {
+        aktorId: req.pengguna!.id,
+        aktorNama: req.pengguna!.id,
+        aksi: "METER_HUBUNGKAN_SUKSES",
+        detail: `Meter ${meter.id} (${meter.serial}) berhasil dihubungkan ke akun.`,
+        tipe: "METER",
+        ip: req.ip ?? "127.0.0.1",
+      },
     });
 
     res.status(200).json({
@@ -333,7 +379,7 @@ meterRouter.post("/hubungkan", async (req: Request, res: Response, next: NextFun
 
 meterRouter.delete("/:id/hubungkan", async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    const id = req.params.id as string;
     if (!id) throw notFound("ID meter tidak valid.");
 
     const meter = await pastikanAksesMeter(req, id);
@@ -341,6 +387,17 @@ meterRouter.delete("/:id/hubungkan", async (req: Request, res: Response, next: N
     await prisma.meter.update({
       where: { id: meter.id },
       data: { penggunaId: null },
+    });
+
+    await prisma.auditLog.create({
+      data: {
+        aktorId: req.pengguna!.id,
+        aktorNama: req.pengguna!.id,
+        aksi: "METER_LEPAS_SUKSES",
+        detail: `Meter ${meter.id} (${meter.serial}) dilepas dari akun.`,
+        tipe: "METER",
+        ip: req.ip ?? "127.0.0.1",
+      },
     });
 
     res.status(200).json({

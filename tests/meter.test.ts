@@ -144,4 +144,53 @@ describe("Meter: telemetri, kontrol relay, dan akses (Issue #3)", () => {
     expect(log).toBeDefined();
     expect(log?.detail).toContain(alasanTutup);
   });
+  it("hubungkan meter mencatat AuditLog pada keberhasilan maupun kegagalan", async () => {
+    const warga = await prisma.pengguna.create({
+      data: {
+        nama: "Warga Hubungkan",
+        email: `hub_${Date.now()}@test.id`,
+        kataSandiHash: "hash123",
+        peran: "WARGA",
+      },
+    });
+
+    const meterId = `MTR_HUB_${Date.now()}`;
+    await prisma.meter.create({
+      data: {
+        id: meterId,
+        node: `node_${meterId}`,
+        serial: `ser_${meterId}`,
+        penggunaId: null,
+      },
+    });
+
+    const token = await buatAkses({ sub: warga.id, peran: "WARGA" });
+
+    // 1. Hubungkan meter yang tidak ada -> 404 & audit log METER_HUBUNGKAN_GAGAL
+    const resGagal = await request(app)
+      .post("/api/meter/hubungkan")
+      .set("Authorization", `Bearer ${token}`)
+      .send({ meterId: "MTR_TIDAK_ADA_9999" });
+    expect(resGagal.status).toBe(404);
+
+    const auditGagal = await prisma.auditLog.findFirst({
+      where: { aktorId: warga.id, aksi: "METER_HUBUNGKAN_GAGAL" },
+      orderBy: { ts: "desc" },
+    });
+    expect(auditGagal).toBeDefined();
+
+    // 2. Hubungkan sukses -> 200 & audit log METER_HUBUNGKAN_SUKSES
+    const resSukses = await request(app)
+      .post("/api/meter/hubungkan")
+      .set("Authorization", `Bearer ${token}`)
+      .send({ meterId });
+    expect(resSukses.status).toBe(200);
+
+    const auditSukses = await prisma.auditLog.findFirst({
+      where: { aktorId: warga.id, aksi: "METER_HUBUNGKAN_SUKSES" },
+      orderBy: { ts: "desc" },
+    });
+    expect(auditSukses).toBeDefined();
+    expect(auditSukses?.detail).toContain(meterId);
+  });
 });
