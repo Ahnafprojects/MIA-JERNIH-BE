@@ -7,6 +7,7 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 import { z } from "zod";
 import pkg, { type Transaksi } from "@prisma/client";
 const { JenisTransaksi, StatusToken, StatusTransaksi, SumberToken } = pkg;
+type StatusTransaksi = (typeof StatusTransaksi)[keyof typeof StatusTransaksi];
 import { prisma } from "../lib/prisma.js";
 import { badRequest, forbidden, notFound } from "../lib/errors.js";
 import { wajibMasuk } from "../middleware/sesi.js";

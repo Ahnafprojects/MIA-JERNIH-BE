@@ -7,6 +7,8 @@ import { randomInt } from "node:crypto";
 import { z } from "zod";
 import pkg from "@prisma/client";
 const { StatusToken, SumberToken } = pkg;
+type StatusToken = (typeof StatusToken)[keyof typeof StatusToken];
+type SumberToken = (typeof SumberToken)[keyof typeof SumberToken];
 import { prisma } from "../lib/prisma.js";
 import { badRequest, forbidden, notFound } from "../lib/errors.js";
 import { wajibMasuk, wajibPeran } from "../middleware/sesi.js";
