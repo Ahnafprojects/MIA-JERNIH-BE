@@ -224,7 +224,7 @@ pembayaranRouter.get(
   wajibMasuk,
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const invoice = Array.isArray(req.params.invoice) ? req.params.invoice[0] : req.params.invoice;
+      const invoice = req.params.invoice as string;
       if (!invoice) throw notFound("Invoice tidak valid.");
 
       const tx = await prisma.transaksi.findUnique({
@@ -264,20 +264,46 @@ pembayaranRouter.get(
 
 pembayaranRouter.post("/webhook", async (req: Request, res: Response, next: NextFunction) => {
   try {
+    /*
+     * TANDA TANGAN WAJIB, TANPA PENGECUALIAN.
+     *
+     * Versi sebelumnya membungkus pemeriksaan ini dalam
+     * `if (rawSignature && ...)`, sehingga penyerang cukup TIDAK mengirim
+     * header `X-Webhook-Signature` untuk melewatinya seluruhnya. Terbukti:
+     * satu permintaan tanpa autentikasi melunasi tagihan Rp 37.500 (5.000 L)
+     * dan menerbitkan token airnya.
+     *
+     * Sekarang: tidak ada rahasia -> tolak; tidak ada header -> tolak;
+     * tanda tangan tidak cocok -> tolak. Gagal menutup, bukan membuka.
+     */
+    const webhookSecret = env().PAYMENT_WEBHOOK_SECRET;
+    if (!webhookSecret) {
+      throw badRequest(
+        "WEBHOOK_BELUM_DIKONFIGURASI",
+        "PAYMENT_WEBHOOK_SECRET belum disetel; webhook pembayaran dinonaktifkan.",
+      );
+    }
+
     const rawSignature = req.headers["x-webhook-signature"];
-    const webhookSecret = process.env.PAYMENT_WEBHOOK_SECRET || "jernih-webhook-secret-key-2026";
+    if (typeof rawSignature !== "string" || rawSignature.length === 0) {
+      throw badRequest(
+        "SIGNATURE_WAJIB",
+        "Header X-Webhook-Signature wajib disertakan.",
+      );
+    }
 
-    if (rawSignature && typeof rawSignature === "string") {
-      const expected = createHmac("sha256", webhookSecret)
-        .update(JSON.stringify(req.body))
-        .digest("hex");
+    const expected = createHmac("sha256", webhookSecret)
+      .update(JSON.stringify(req.body))
+      .digest("hex");
 
-      const bufA = Buffer.from(rawSignature, "hex");
-      const bufB = Buffer.from(expected, "hex");
+    // `Buffer.from(x, "hex")` diam-diam memotong karakter non-hex, jadi panjang
+    // yang kebetulan sama tidak cukup untuk dipercaya — cocokkan bentuknya dulu.
+    const bentukHexSah = /^[0-9a-f]{64}$/i.test(rawSignature);
+    const bufA = Buffer.from(rawSignature, "hex");
+    const bufB = Buffer.from(expected, "hex");
 
-      if (bufA.length !== bufB.length || !timingSafeEqual(bufA, bufB)) {
-        throw badRequest("SIGNATURE_INVALID", "Tanda tangan webhook tidak cocok.");
-      }
+    if (!bentukHexSah || bufA.length !== bufB.length || !timingSafeEqual(bufA, bufB)) {
+      throw badRequest("SIGNATURE_INVALID", "Tanda tangan webhook tidak cocok.");
     }
 
     const { invoiceId, status } = req.body as { invoiceId?: string; status?: string };
@@ -351,7 +377,7 @@ transaksiRouter.get("/", wajibMasuk, async (req: Request, res: Response, next: N
 
 transaksiRouter.get("/:id", wajibMasuk, async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    const id = req.params.id as string;
     if (!id) throw notFound("ID transaksi tidak valid.");
 
     const tx = await prisma.transaksi.findUnique({
