@@ -4,7 +4,8 @@
  */
 import { Router, type Request, type Response, type NextFunction } from "express";
 import { z } from "zod";
-import { StatusTiket } from "@prisma/client";
+import pkg from "@prisma/client";
+const { StatusTiket } = pkg;
 import { prisma } from "../lib/prisma.js";
 import { badRequest, forbidden, notFound } from "../lib/errors.js";
 import { wajibMasuk, wajibPeran } from "../middleware/sesi.js";

@@ -5,7 +5,8 @@
 import { Router, type Request, type Response, type NextFunction } from "express";
 import { z } from "zod";
 import rateLimit from "express-rate-limit";
-import { StatusRelay } from "@prisma/client";
+import pkg from "@prisma/client";
+const { StatusRelay } = pkg;
 import { prisma } from "../lib/prisma.js";
 import { badRequest, forbidden, notFound } from "../lib/errors.js";
 import { wajibMasuk } from "../middleware/sesi.js";

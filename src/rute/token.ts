@@ -5,7 +5,8 @@
 import { Router, type Request, type Response, type NextFunction } from "express";
 import { randomInt } from "node:crypto";
 import { z } from "zod";
-import { StatusToken, SumberToken } from "@prisma/client";
+import pkg from "@prisma/client";
+const { StatusToken, SumberToken } = pkg;
 import { prisma } from "../lib/prisma.js";
 import { badRequest, forbidden, notFound } from "../lib/errors.js";
 import { wajibMasuk, wajibPeran } from "../middleware/sesi.js";
