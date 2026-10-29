@@ -33,7 +33,11 @@ import {
 } from "@prisma/client";
 import argon2 from "argon2";
 import { createHash } from "node:crypto";
-import "dotenv/config";
+try {
+  await import("dotenv/config");
+} catch {
+  // Abaikan bila dotenv tidak terpasang di production
+}
 
 const prisma = new PrismaClient({
   adapter: new PrismaPg({ connectionString: process.env.DATABASE_URL! }),
