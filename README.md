@@ -62,9 +62,33 @@ Perintah lain:
 ```bash
 npm run build      # kompilasi ke dist/
 npm run typecheck  # tsc --noEmit
-npm run test       # Vitest
 npm run db:studio  # Prisma Studio
 ```
+
+## Menjalankan tes
+
+Tes **tidak memakai** database pengembangan di port 5432. `tests/setup.ts`
+menunjuk database terpisah di **port 5435** supaya `npm test` tidak pernah
+menghapus data yang sedang Anda pakai — seed di dalam tes mengosongkan tabel
+tiap kali jalan.
+
+Database itu harus dinyalakan sendiri; tanpa itu 39 dari 47 tes gagal dengan
+galat Prisma yang tidak menyebut penyebabnya:
+
+```bash
+# 1. nyalakan database tes (tanpa volume, isinya memang sekali pakai)
+docker compose -f docker-compose.example.yml --profile test up -d db-test
+
+# 2. terapkan skema ke database tes
+DATABASE_URL="postgresql://jernih:jernih@localhost:5435/jernih_test?schema=public" \
+  npx prisma migrate deploy
+
+# 3. jalankan
+npm run test
+```
+
+Tidak perlu `db:seed` manual — `tests/seed.test.ts` menyemai sendiri lewat
+`jalankanSeed()`. Dari database kosong pun 47/47 lulus.
 
 ## Struktur
 

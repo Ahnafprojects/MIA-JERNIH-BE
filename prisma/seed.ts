@@ -151,7 +151,16 @@ const KATEGORI_TIKET = [
   ["lainnya", 72],
 ] as const;
 
-async function main() {
+/**
+ * Mengisi basis data dengan data demo.
+ *
+ * Diekspor supaya `tests/seed.test.ts` bisa menyiapkan datanya sendiri.
+ * Sebelumnya tes itu hanya MEMBACA basis data dan menuntut `zona == 4`,
+ * `pengguna >= 25`, dan seterusnya — tanpa pernah menyemai apa pun. Di klona
+ * bersih ia selalu gagal; dan kalau kebetulan lulus, yang teruji sebenarnya
+ * isi basis data lokal seseorang, bukan kode di repo ini.
+ */
+export async function jalankanSeed() {
   console.log("mengosongkan tabel untuk memastikan idempoten…");
   await prisma.$transaction([
     prisma.auditLog.deleteMany(),
@@ -534,9 +543,21 @@ async function main() {
   console.log("\nSeed data demo selesai dengan sempurna!");
 }
 
-main()
-  .catch((e) => {
-    console.error(e);
-    process.exit(1);
-  })
-  .finally(() => prisma.$disconnect());
+/*
+ * Hanya berjalan sendiri kalau berkas ini DIEKSEKUSI langsung
+ * (`npm run db:seed`). Saat di-import dari tes, pemanggilnya yang menentukan
+ * kapan seed jalan — dan `$disconnect()` di bawah tidak boleh ikut memutus
+ * koneksi di tengah rangkaian tes.
+ */
+const dijalankanLangsung =
+  process.argv[1] !== undefined &&
+  import.meta.url === new URL(`file://${process.argv[1]}`).href;
+
+if (dijalankanLangsung) {
+  jalankanSeed()
+    .catch((e) => {
+      console.error(e);
+      process.exit(1);
+    })
+    .finally(() => prisma.$disconnect());
+}
