@@ -91,10 +91,21 @@ export async function buatTiketDenganNomor<T>(
 
 /* ── Validasi Zod ────────────────────────────────────────────────────── */
 
+const skemaFoto = z
+  .string()
+  .trim()
+  .refine(
+    (uri) =>
+      uri.startsWith("data:image/") ||
+      /^https?:\/\//i.test(uri) ||
+      uri.startsWith("/"),
+    "Foto harus berupa data URI gambar valid atau URL HTTP/HTTPS.",
+  );
+
 const skemaBuatTiket = z.object({
   kategori: z.string().trim().min(3, "Kategori pengaduan wajib dipilih."),
   deskripsi: z.string().trim().min(5, "Deskripsi pengaduan minimal 5 karakter."),
-  foto: z.array(z.string()).max(3, "Maksimal 3 foto pendukung.").default([]),
+  foto: z.array(skemaFoto).max(3, "Maksimal 3 foto pendukung.").default([]),
   lat: z.number().optional(),
   lng: z.number().optional(),
   meterId: z.string().trim().optional(),
@@ -206,7 +217,7 @@ tiketRouter.get("/", async (req: Request, res: Response, next: NextFunction) => 
 
 tiketRouter.get("/:id", async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+    const id = req.params.id as string;
     if (!id) throw notFound("ID tiket tidak valid.");
 
     const tiket = await prisma.tiket.findFirst({
@@ -336,7 +347,7 @@ adminTiketRouter.patch(
   wajibPeran("OPERATOR", "SUPERVISOR", "TEKNISI"),
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+      const id = req.params.id as string;
       if (!id) throw notFound("ID tiket tidak valid.");
 
       const { status, teknisiId, catatan } = skemaUbahTiketAdmin.parse(req.body);
