@@ -30,25 +30,63 @@ export function hitungSlaJatuhTempo(kategori: string, tanggalDibuat: Date): Date
   return new Date(tanggalDibuat.getTime() + jamSla * 60 * 60 * 1000);
 }
 
+/**
+ * Nomor urut tiket berikutnya untuk bulan berjalan.
+ *
+ * Versi sebelumnya membaca tiket terakhir lalu menambah satu di memori. Itu
+ * balapan klasik: delapan pengaduan yang tiba bersamaan menghasilkan SATU
+ * nomor yang sama (sudah diuji), dan karena `Tiket.nomor` ber-`@unique`,
+ * tujuh di antaranya gagal dengan 500 — tepat pada saat gangguan besar,
+ * ketika banyak warga melapor serentak.
+ *
+ * `padStart(4)` juga dipertahankan hanya sebagai lebar minimum. Dulu lebarnya
+ * mengikat: tiket ke-10.000 menghasilkan "…-10000", yang pada urutan STRING
+ * jatuh di bawah "…-9999", sehingga penomoran berputar balik dan bertabrakan.
+ * Di sini urutan dihitung dari JUMLAH baris, bukan dari urutan string.
+ */
+async function nomorBerikutnya(awalan: string): Promise<string> {
+  const jumlah = await prisma.tiket.count({ where: { nomor: { startsWith: awalan } } });
+  return `${awalan}${String(jumlah + 1).padStart(4, "0")}`;
+}
+
 export async function buatNomorTiket(): Promise<string> {
   const d = new Date();
   const thn = d.getFullYear();
   const bln = String(d.getMonth() + 1).padStart(2, "0");
-  const awalan = `LP-${thn}-${bln}-`;
+  return nomorBerikutnya(`LP-${thn}-${bln}-`);
+}
 
-  const tiketTerakhir = await prisma.tiket.findFirst({
-    where: { nomor: { startsWith: awalan } },
-    orderBy: { nomor: "desc" },
-  });
+/**
+ * Membuat tiket sambil menangani tabrakan nomor.
+ *
+ * Keunikan ditegakkan basis data, bukan oleh pembacaan di atas: kalau dua
+ * permintaan tetap memilih nomor yang sama, yang kalah mendapat P2002 dan
+ * mencoba lagi dengan nomor berikutnya. Itu sebabnya nomor TIDAK boleh
+ * dihitung sekali di luar lalu dipakai berulang.
+ */
+export async function buatTiketDenganNomor<T>(
+  buat: (nomor: string) => Promise<T>,
+  maksCoba = 8,
+): Promise<T> {
+  const d = new Date();
+  const awalan = `LP-${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-`;
 
-  let urut = 1;
-  if (tiketTerakhir) {
-    const bagianUrut = parseInt(tiketTerakhir.nomor.replace(awalan, ""), 10);
-    if (!Number.isNaN(bagianUrut)) {
-      urut = bagianUrut + 1;
+  let urut = (await prisma.tiket.count({ where: { nomor: { startsWith: awalan } } })) + 1;
+  for (let coba = 0; coba < maksCoba; coba++) {
+    try {
+      return await buat(`${awalan}${String(urut).padStart(4, "0")}`);
+    } catch (err) {
+      const kode = (err as { code?: string }).code;
+      const target = (err as { meta?: { target?: string[] } }).meta?.target;
+      const bentrokNomor =
+        kode === "P2002" && (!target || target.includes("nomor"));
+      if (!bentrokNomor) throw err;
+      urut++;
     }
   }
-  return `${awalan}${String(urut).padStart(4, "0")}`;
+  throw new Error(
+    `Gagal memperoleh nomor tiket unik setelah ${maksCoba} percobaan.`,
+  );
 }
 
 /* ── Validasi Zod ────────────────────────────────────────────────────── */
@@ -87,23 +125,24 @@ tiketRouter.post("/", async (req: Request, res: Response, next: NextFunction) =>
 
     const dibuatPada = new Date();
     const slaJatuhTempo = hitungSlaJatuhTempo(data.kategori, dibuatPada);
-    const nomor = await buatNomorTiket();
 
-    const tiket = await prisma.tiket.create({
-      data: {
-        nomor,
-        pelaporId,
-        kategori: data.kategori,
-        deskripsi: data.deskripsi,
-        fotoUrl: data.foto,
-        lat: data.lat ?? null,
-        lng: data.lng ?? null,
-        meterId: data.meterId ?? null,
-        status: StatusTiket.BARU,
-        slaJatuhTempo,
-        dibuatPada,
-      },
-    });
+    const tiket = await buatTiketDenganNomor((nomor) =>
+      prisma.tiket.create({
+        data: {
+          nomor,
+          pelaporId,
+          kategori: data.kategori,
+          deskripsi: data.deskripsi,
+          fotoUrl: data.foto,
+          lat: data.lat ?? null,
+          lng: data.lng ?? null,
+          meterId: data.meterId ?? null,
+          status: StatusTiket.BARU,
+          slaJatuhTempo,
+          dibuatPada,
+        },
+      }),
+    );
 
     res.status(201).json({
       ok: true,
