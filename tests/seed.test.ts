@@ -1,10 +1,23 @@
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 import request from "supertest";
 import { buatApp } from "../src/app.js";
 import { prisma } from "../src/lib/prisma.js";
+import { jalankanSeed } from "../prisma/seed.js";
 
 describe("Seed Data Demo yang Masuk Akal (Issue #14)", () => {
   const app = buatApp();
+
+  /*
+   * Tes ini menyiapkan datanya SENDIRI.
+   *
+   * Sebelumnya ia langsung memeriksa `prisma.zona.count() === 4` tanpa pernah
+   * menjalankan seed, sehingga hasilnya bergantung pada basis data lokal yang
+   * kebetulan sudah terisi. Di klona bersih keempat tesnya gagal — bukan
+   * karena seednya salah, tapi karena tidak ada yang menjalankannya.
+   */
+  beforeAll(async () => {
+    await jalankanSeed();
+  }, 120_000);
 
   it("basis data memiliki seluruh data demo yang dipersyaratkan", async () => {
     const [zonaCount, golCount, penggunaCount, meterCount, tokenCount, insidenCount] =
