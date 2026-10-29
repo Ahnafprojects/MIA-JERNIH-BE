@@ -10,6 +10,7 @@ import { prisma } from "../lib/prisma.js";
 import { badRequest, forbidden, notFound } from "../lib/errors.js";
 import { wajibMasuk } from "../middleware/sesi.js";
 import { log } from "../lib/log.js";
+import { wsManager } from "../ws.js";
 
 export const meterRouter: Router = Router();
 
@@ -291,6 +292,12 @@ meterRouter.post("/:id/relay", async (req: Request, res: Response, next: NextFun
 
     await kirimKeMeter(meter.id, { aksi, statusBaru });
 
+    wsManager.kirimKeRoom(`meter:${meter.id}`, "meter:relay", {
+      meterId: meter.id,
+      relay: statusBaru,
+      alasan,
+    });
+
     res.status(200).json({
       ok: true,
       relay: statusBaru,
@@ -365,6 +372,11 @@ meterRouter.post("/hubungkan", limiterHubungkan, async (req: Request, res: Respo
       },
     });
 
+    wsManager.kirimKeRoom(`meter:${meter.id}`, "meter:status", {
+      meterId: meter.id,
+      penggunaId: req.pengguna!.id,
+    });
+
     res.status(200).json({
       ok: true,
       meterId: meter.id,
@@ -398,6 +410,11 @@ meterRouter.delete("/:id/hubungkan", async (req: Request, res: Response, next: N
         tipe: "METER",
         ip: req.ip ?? "127.0.0.1",
       },
+    });
+
+    wsManager.kirimKeRoom(`meter:${meter.id}`, "meter:status", {
+      meterId: meter.id,
+      penggunaId: null,
     });
 
     res.status(200).json({
