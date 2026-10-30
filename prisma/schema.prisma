@@ -323,6 +323,10 @@ model Tiket {
   teknisiId   String?
   /// Batas waktu tanggap. Dasar perhitungan "rapor kinerja" publik.
   slaJatuhTempo DateTime
+  /// Kapan tiket PERTAMA KALI ditanggapi petugas (masuk DIPROSES).
+  /// Terpisah dari `diubahPada`, yang berubah tiap kali baris ini disunting
+  /// dan karena itu tidak pernah bisa dipakai sebagai waktu tanggap.
+  ditanggapiPada DateTime?
   selesaiPada DateTime?
   penilaian   Int?
   dibuatPada  DateTime    @default(now())
