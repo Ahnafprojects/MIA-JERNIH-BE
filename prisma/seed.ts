@@ -279,7 +279,8 @@ export async function jalankanSeed() {
     serial: string;
     alamat: string;
     zonaId: string;
-    penggunaId: string;
+    /** `null` = meter terpasang tapi belum diklaim siapa pun (lihat di bawah). */
+    penggunaId: string | null;
     lat: number | null;
     lng: number | null;
     saldoL: number;
@@ -330,7 +331,25 @@ export async function jalankanSeed() {
       serial: `JRN-${String(10000 + i)}`,
       alamat: `Jl. Melati No. ${1 + (i % 99)}`,
       zonaId: zonaId(namaZona),
-      penggunaId: i === 0 ? wargaDemoUser.id : pid,
+      /*
+       * Lima meter terakhir sengaja TIDAK bertuan.
+       *
+       * Sebelumnya setiap meter langsung diberi pemilik, sehingga tidak ada
+       * satu pun yang bisa diklaim akun baru — dan alur "hubungkan meter"
+       * (onboarding meter fisik) mustahil diperagakan: pendaftar baru tidak
+       * punya apa pun untuk dihubungkan. Diverifikasi dengan membebaskan satu
+       * meter secara manual; setelah itu POST /api/meter/hubungkan langsung
+       * berhasil, jadi yang kurang memang datanya, bukan kodenya.
+       *
+       * Serialnya dicetak di README supaya penguji tahu mana yang bisa
+       * dipakai tanpa harus menebak.
+       */
+      penggunaId:
+        i === 0
+          ? wargaDemoUser.id
+          : i >= JUMLAH_PELANGGAN - 5
+            ? null
+            : pid,
       lat: adaKoordinat ? bulat(pusat[1] + Math.sin(sudut) * jarak * 0.78, 5) : null,
       lng: adaKoordinat ? bulat(pusat[0] + Math.cos(sudut) * jarak, 5) : null,
       saldoL,
@@ -350,7 +369,18 @@ export async function jalankanSeed() {
   console.log(`pelanggan + meter: ${meter.length}`);
 
   /* ── 5. Telemetri 9 Hari ke Belakang per Jam (Peta Panas 7x24 & Grafik) ── */
-  const contoh = meter.slice(0, 30);
+  /*
+   * Cuplikan meter untuk membangkitkan pemakaian, token, transaksi, dan tiket.
+   *
+   * Hanya meter BERTUAN yang boleh masuk: semua turunan di bawah menunjuk
+   * pemiliknya (`pemilikId`, `penggunaId`, `pelaporId`), dan kolom-kolom itu
+   * wajib di skema. Lima meter terakhir sengaja dibiarkan tanpa pemilik supaya
+   * alur "hubungkan meter" bisa diperagakan — menyaringnya di sini membuat
+   * kedua kebutuhan itu hidup berdampingan tanpa saling merusak.
+   */
+  const contoh = meter
+    .filter((m): m is typeof m & { penggunaId: string } => m.penggunaId !== null)
+    .slice(0, 30);
   const ember: Array<{ meterId: string; jam: Date; volumeL: number }> = [];
 
   for (const m of contoh) {
@@ -390,8 +420,10 @@ export async function jalankanSeed() {
     StatusToken.DIBATALKAN,
   ];
 
+  // `contoh`, bukan `meter`: token wajib punya `pemilikId`, dan lima meter
+  // terakhir sengaja belum bertuan supaya bisa dipakai menguji onboarding.
   for (let i = 0; i < 40; i++) {
-    const m = meter[i % meter.length]!;
+    const m = contoh[i % contoh.length]!;
     for (let k = 0; k < 4; k++) {
       const st = statusTokenSample[k]!;
       const kode = String(Math.floor(r() * 9e9) + 1e9);
@@ -450,6 +482,21 @@ export async function jalankanSeed() {
     const durasiSelesaiJam = telat ? (slaJam as number) * 1.5 : (slaJam as number) * 0.6;
     const selesaiPada = selesai ? new Date(dibuat.getTime() + durasiSelesaiJam * JAM) : null;
 
+    const status = selesai
+      ? StatusTiket.SELESAI
+      : pilih([StatusTiket.BARU, StatusTiket.DIPROSES]);
+
+    /*
+     * Waktu tanggap: 15–180 menit setelah laporan masuk, dan HANYA untuk
+     * tiket yang memang sudah keluar dari BARU. Tiket yang masih BARU belum
+     * ditanggapi siapa pun, jadi kolomnya null — itu yang membuat rata-rata
+     * di halaman publik tidak tercemar tiket yang belum disentuh.
+     */
+    const ditanggapiPada =
+      status === StatusTiket.BARU
+        ? null
+        : new Date(dibuat.getTime() + (15 + Math.floor(r() * 165)) * 60_000);
+
     return {
       nomor: `LP-2026-10-${String(i + 1).padStart(4, "0")}`,
       pelaporId: m.penggunaId,
@@ -457,9 +504,10 @@ export async function jalankanSeed() {
       kategori: kategori as string,
       deskripsi: `Laporan warga perihal ${kategori.toLowerCase()} pada saluran air.`,
       fotoUrl: [],
-      status: selesai ? StatusTiket.SELESAI : pilih([StatusTiket.BARU, StatusTiket.DIPROSES]),
+      status,
       teknisiId: selesai || r() > 0.5 ? teknisiUser1.id : null,
       slaJatuhTempo: jatuhTempo,
+      ditanggapiPada,
       selesaiPada,
       dibuatPada: dibuat,
     };
