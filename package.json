@@ -35,7 +35,8 @@
     "pino": "^10.0.0",
     "pino-http": "^11.0.0",
     "ws": "^8.19.0",
-    "zod": "^4.6.7"
+    "zod": "^4.6.7",
+    "dotenv": "^18.0.9"
   },
   "devDependencies": {
     "@types/cookie-parser": "^1.4.9",
@@ -46,7 +47,6 @@
     "@types/pg": "^8.23.1",
     "@types/supertest": "^6.0.3",
     "@types/ws": "^8.18.1",
-    "dotenv": "^18.0.9",
     "eslint": "^9.39.1",
     "prisma": "^7.10.1",
     "supertest": "^7.1.4",

@@ -5,11 +5,15 @@
  * Berkas ini yang menyediakannya untuk perintah CLI; PrismaClient saat
  * runtime memakai adapter di `src/lib/prisma.ts`.
  */
-import "dotenv/config";
+try {
+  await import("dotenv/config");
+} catch {
+  // Abaikan bila dotenv tidak terpasang (misal di production runner)
+}
 import { defineConfig } from "prisma/config";
 
 export default defineConfig({
   schema: "prisma/schema.prisma",
-  migrations: { seed: "tsx prisma/seed.ts" },
-  datasource: { url: process.env.DATABASE_URL ?? '' },
+  migrations: { seed: "node dist/prisma/seed.js" },
+  datasource: { url: process.env.DATABASE_URL ?? "" },
 });

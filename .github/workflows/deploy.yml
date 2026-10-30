@@ -3,6 +3,7 @@ name: Deploy
 on:
   push:
     branches: [main]
+  workflow_dispatch:
 
 jobs:
   deploy:
@@ -20,7 +21,7 @@ jobs:
       - name: Setup SSH
         run: |
           mkdir -p ~/.ssh
-          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/jernih_ed25519
+          printf '%s\n' "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/jernih_ed25519
           chmod 600 ~/.ssh/jernih_ed25519
           cat >> ~/.ssh/config << 'EOF'
           Host ssh.ahnaf.cloud
@@ -39,7 +40,8 @@ jobs:
             git clone https://github.com/Ahnafprojects/MIA-JERNIH-BE.git ~/app
           fi
           cd ~/app
-          git pull origin main
+          git fetch origin main
+          git reset --hard origin/main
           # Salin example jadi docker-compose.yml kalau belum ada
           if [ ! -f docker-compose.yml ]; then
             cp docker-compose.example.yml docker-compose.yml

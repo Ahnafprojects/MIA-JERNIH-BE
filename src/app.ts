@@ -18,13 +18,18 @@ import { ZodError } from "zod";
 import { env } from "./env.js";
 import { AppError } from "./lib/errors.js";
 import { log } from "./lib/log.js";
-import { authRouter } from "./rute/auth.js";
+import { authRouter, meRouter } from "./rute/auth.js";
 import { publikRouter } from "./rute/publik.js";
 import { meterRouter } from "./rute/meter.js";
-import { tokenRouter } from "./rute/token.js";
-import { bayarRouter } from "./rute/bayar.js";
-import { tiketRouter } from "./rute/tiket.js";
-import { insidenRouter } from "./rute/insiden.js";
+import { tokenRouter, adminTokenRouter } from "./rute/token.js";
+import {
+  bayarRouter,
+  paketRouter,
+  pembayaranRouter,
+  transaksiRouter,
+} from "./rute/bayar.js";
+import { tiketRouter, adminTiketRouter } from "./rute/tiket.js";
+import { adminInsidenRouter } from "./rute/insiden.js";
 import { konsolRouter } from "./rute/konsol.js";
 import { geoRouter } from "./rute/geo.js";
 import { notifikasiRouter } from "./rute/notifikasi.js";
@@ -78,12 +83,18 @@ export function buatApp(): Express {
    */
   app.use("/api/publik", publikRouter);
   app.use("/api/auth", authRouter);
+  app.use("/api/me", meRouter);
   app.use("/api/meter", meterRouter);
   app.use("/api/token", tokenRouter);
+  app.use("/api/paket", paketRouter);
+  app.use("/api/pembayaran", pembayaranRouter);
+  app.use("/api/transaksi", transaksiRouter);
   app.use("/api/bayar", bayarRouter);
   app.use("/api/tiket", tiketRouter);
-  app.use("/api/insiden", insidenRouter);
   app.use("/api/notifikasi", notifikasiRouter);
+  app.use("/api/admin/token", adminTokenRouter);
+  app.use("/api/admin/tiket", adminTiketRouter);
+  app.use("/api/admin/insiden", adminInsidenRouter);
   app.use("/api/admin", konsolRouter);
   app.use("/api/admin", geoRouter);
 

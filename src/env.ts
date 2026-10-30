@@ -6,6 +6,8 @@
  * sedang mencoba halaman pembelian.
  */
 import { z } from "zod";
+import dotenv from "dotenv";
+dotenv.config();
 
 const bool = (bawaan: boolean) =>
   z
@@ -27,6 +29,23 @@ const skema = z.object({
   /** Asal yang boleh memanggil API, dipisah koma. */
   CORS_ORIGIN: z.string().default("http://localhost:3000"),
 
+  /**
+   * Alamat depan portal, dipakai menyusun tautan di email (atur ulang sandi).
+   * Sebelumnya `https://jernih.id` ditulis langsung di `rute/auth.ts`, sehingga
+   * email dari staging dan lokal mengirim pengguna ke situs produksi.
+   */
+  APP_URL: z.string().default("http://localhost:3000"),
+
+  /**
+   * Rahasia tanda tangan webhook penyedia pembayaran.
+   *
+   * Sengaja TANPA nilai bawaan. Sebelumnya ada cadangan yang ditulis di kode
+   * (`"jernih-webhook-secret-key-2026"`), artinya siapa pun yang membaca repo
+   * bisa menandatangani webhook palsu. Kalau kosong, endpoint webhook menolak
+   * semua permintaan — lebih baik pembayaran tidak terproses daripada saldo
+   * bisa diisi gratis.
+   */
+  PAYMENT_WEBHOOK_SECRET: z.string().default(""),
   MAIL_ENABLED: bool(false),
   SMTP_HOST: z.string().default(""),
   SMTP_PORT: z.coerce.number().int().default(587),
@@ -41,6 +60,13 @@ const skema = z.object({
    * yang bisa memanggil POST /api/payment mendapat air gratis.
    */
   PAYMENT_AUTO_SETTLE: bool(true),
+
+  /**
+   * Mengizinkan penukaran token demo 1111 (+5L) dan 2222 (+10L) lewat API.
+   * Di produksi harus bernilai false agar pelanggan tidak dapat menambah saldo
+   * gratis tanpa transaksi.
+   */
+  DEMO_TOKEN_ENABLED: bool(false),
 
   SEED_PASSWORD: z.string().default("admin123"),
 });

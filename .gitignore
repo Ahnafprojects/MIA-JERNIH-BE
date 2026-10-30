@@ -6,3 +6,5 @@ dist/
 .DS_Store
 
 # Panduan lokal untuk perkakas, tidak ikut dipublikasikan.
+PRD.md
+workspace/
