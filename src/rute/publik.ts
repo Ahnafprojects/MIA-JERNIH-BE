@@ -47,6 +47,39 @@ publikRouter.use(limiterPublik);
 
 /* ── 1. GET /api/publik/status-layanan ────────────────────────────────── */
 
+/**
+ * Cincin luar sebuah GeoJSON Polygon, atau `null` kalau bentuknya bukan itu.
+ *
+ * `batasGeo` bertipe `Json` di skema, jadi isinya tidak dijamin apa pun —
+ * baris lama, hasil impor yang salah, atau `null` semuanya mungkin. Yang
+ * dikembalikan hanya cincin yang benar-benar berupa senarai pasangan angka;
+ * selain itu `null`, supaya peta memperlakukannya sebagai zona tanpa batas
+ * alih-alih melempar di tengah render.
+ */
+function cincinLuar(geo: unknown): [number, number][] | null {
+  if (!geo || typeof geo !== "object") return null;
+  const g = geo as { type?: unknown; coordinates?: unknown };
+  if (g.type !== "Polygon" || !Array.isArray(g.coordinates)) return null;
+
+  // `unknown[]`, bukan `any[]`: `coordinates` datang dari kolom Json, jadi
+  // tiap lapisnya harus diperiksa sendiri — bukan dipercaya bentuknya.
+  const cincin: unknown = (g.coordinates as unknown[])[0];
+  if (!Array.isArray(cincin) || cincin.length < 4) return null;
+
+  const titik: [number, number][] = [];
+  for (const t of cincin as unknown[]) {
+    if (
+      !Array.isArray(t) ||
+      typeof t[0] !== "number" ||
+      typeof t[1] !== "number"
+    ) {
+      return null;
+    }
+    titik.push([t[0], t[1]]);
+  }
+  return titik;
+}
+
 publikRouter.get("/status-layanan", async (_req: Request, res: Response, next: NextFunction) => {
   try {
     const semuaZona = await prisma.zona.findMany({
@@ -134,6 +167,20 @@ publikRouter.get("/status-layanan", async (_req: Request, res: Response, next: N
         sejak,
         perkiraanPulih,
         keterangan,
+        /*
+         * `batas` — cincin luar polygon, bentuk yang DIBACA frontend.
+         *
+         * Endpoint ini hanya mengirim `batasGeo` (objek GeoJSON mentah),
+         * sedangkan peta di /status membaca `zona.batas` sebagai senarai
+         * titik. Akibatnya `z.batas` selalu `undefined`, penjaganya
+         * (`batas !== null`) meloloskannya, dan `batas.length` melempar
+         * TypeError yang menjatuhkan seluruh komponen peta. Yang tampil di
+         * layar: "Peramban ini tidak mendukung WebGL" — pesan yang keliru
+         * pada peramban yang WebGL-nya baik-baik saja.
+         *
+         * `batasGeo` tetap dikirim supaya pemakai lama tidak rusak.
+         */
+        batas: cincinLuar(z.batasGeo),
         batasGeo: z.batasGeo ?? null,
       };
     });
