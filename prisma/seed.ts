@@ -246,6 +246,7 @@ export async function jalankanSeed() {
   }
   const operatorUser = stafRecords[0]!;
   const teknisiUser1 = stafRecords[2]!;
+  const wargaDemoUser = stafRecords[4]!;
 
   console.log(`akun demo siap: ${demoStaf.length} (kata sandi: ${process.env.SEED_PASSWORD ?? "admin123"})`);
 
@@ -329,7 +330,7 @@ export async function jalankanSeed() {
       serial: `JRN-${String(10000 + i)}`,
       alamat: `Jl. Melati No. ${1 + (i % 99)}`,
       zonaId: zonaId(namaZona),
-      penggunaId: pid,
+      penggunaId: i === 0 ? wargaDemoUser.id : pid,
       lat: adaKoordinat ? bulat(pusat[1] + Math.sin(sudut) * jarak * 0.78, 5) : null,
       lng: adaKoordinat ? bulat(pusat[0] + Math.cos(sudut) * jarak, 5) : null,
       saldoL,

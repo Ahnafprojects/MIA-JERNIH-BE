@@ -6,6 +6,8 @@
  * sedang mencoba halaman pembelian.
  */
 import { z } from "zod";
+import dotenv from "dotenv";
+dotenv.config();
 
 const bool = (bawaan: boolean) =>
   z
