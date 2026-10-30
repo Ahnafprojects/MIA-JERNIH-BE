@@ -441,22 +441,21 @@ authRouter.post(
       }
 
       const ua = req.headers["user-agent"] ?? "unknown";
-      // Cek apakah perangkat baru
-      const sesiLama = await prisma.sesi.findFirst({
+      // Cek apakah perangkat pernah digunakan oleh pengguna ini (walaupun sesi sebelumnya telah logout)
+      const pernahPakaiPerangkatIni = await prisma.sesi.findFirst({
         where: {
           penggunaId: pengguna.id,
           perangkat: ua,
-          dicabutPada: null,
         },
       });
 
-      // Jika user punya sesi sebelumnya dan perangkat ini belum pernah dipakai,
+      // Jika user punya riwayat sesi sebelumnya dan perangkat ini BENAR-BENAR belum pernah dipakai,
       // kirim 2FA kode email untuk keamanan tambahan
       const totalSesi = await prisma.sesi.count({
         where: { penggunaId: pengguna.id },
       });
 
-      if (totalSesi > 0 && !sesiLama) {
+      if (totalSesi > 0 && !pernahPakaiPerangkatIni) {
         const kode = buatKodeEmail();
         await prisma.kodeEmail.create({
           data: {

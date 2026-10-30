@@ -368,11 +368,28 @@ adminTiketRouter.patch(
       const selesaiPada =
         statusBaru === StatusTiket.SELESAI ? new Date() : tiket.selesaiPada;
 
+      /*
+       * Waktu tanggap dicatat SEKALI, saat tiket keluar dari BARU.
+       *
+       * Sebelumnya "rata-rata waktu tanggap" di halaman publik dihitung dari
+       * `diubahPada - dibuatPada`. `diubahPada` adalah `@updatedAt`: ia ikut
+       * berubah setiap kali baris tiket disunting, termasuk saat ditutup
+       * berhari-hari kemudian. Hasilnya angka yang terbaca sebagai 18.434
+       * menit — 12,8 hari — dan disajikan ke publik sebagai waktu tanggap.
+       *
+       * `??` memastikan nilainya tidak pernah ditimpa oleh perubahan status
+       * berikutnya: yang dicari adalah tanggapan PERTAMA.
+       */
+      const ditanggapiPada =
+        tiket.ditanggapiPada ??
+        (statusBaru !== StatusTiket.BARU ? new Date() : null);
+
       const updated = await prisma.tiket.update({
         where: { id },
         data: {
           status: statusBaru,
           teknisiId: teknisiId ?? tiket.teknisiId,
+          ditanggapiPada,
           selesaiPada,
         },
       });
