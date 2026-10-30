@@ -62,7 +62,16 @@ function pilih<T>(xs: readonly T[]): T {
 }
 const bulat = (x: number, d = 2) => Math.round(x * 10 ** d) / 10 ** d;
 
-const JUMLAH_PELANGGAN = 120; // 120 pelanggan untuk efisiensi seed demo yang cepat & kaya data
+const JUMLAH_PELANGGAN = 120; // cukup kaya untuk demo, cukup cepat untuk di-seed ulang
+/**
+ * Meter terpasang yang sengaja BELUM diklaim siapa pun.
+ *
+ * Dipakai menguji alur "hubungkan meter": pendaftar baru butuh serial yang
+ * benar-benar bebas. Jumlahnya 25, bukan 5, supaya beberapa penguji bisa
+ * mendaftar berbarengan tanpa kehabisan — dengan 5, orang keenam gagal
+ * tanpa ada layar yang menjelaskan kenapa.
+ */
+const METER_BELUM_DIKLAIM = 25;
 const JAM = 3600_000;
 const kini = Date.now();
 
@@ -347,7 +356,7 @@ export async function jalankanSeed() {
       penggunaId:
         i === 0
           ? wargaDemoUser.id
-          : i >= JUMLAH_PELANGGAN - 5
+          : i >= JUMLAH_PELANGGAN - METER_BELUM_DIKLAIM
             ? null
             : pid,
       lat: adaKoordinat ? bulat(pusat[1] + Math.sin(sudut) * jarak * 0.78, 5) : null,
