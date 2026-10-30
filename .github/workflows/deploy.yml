@@ -48,4 +48,12 @@ jobs:
           fi
           docker compose up -d --build
           docker compose exec -T app sh -c "npx prisma migrate deploy"
+          # Mengisi tabel yang baru dibuat migrasi, kalau masih kosong.
+          # Migrasi membuat `NeracaHarian`, tetapi tabel kosong membuat
+          # /statistik melaporkan kehilangan air 0% — dan 0% yang salah lebih
+          # merusak daripada "—" yang jujur, karena ia terbaca seperti klaim.
+          # Aman diulang: berhenti tanpa menulis kalau tabelnya sudah terisi.
+          # `node dist/...`, bukan `npx tsx`: image produksi menjalankan
+          # `npm prune --omit=dev`, jadi tsx tidak ada di sana.
+          docker compose exec -T app sh -c "node dist/prisma/isi-neraca.js"
           REMOTE

@@ -160,6 +160,39 @@ model Zona {
 
   pengguna Pengguna[]
   meter    Meter[]
+  neraca   NeracaHarian[]
+}
+
+/// Neraca air harian per zona.
+///
+/// Dua angka yang berbeda asalnya, dan perbedaan itulah seluruh pokok
+/// persoalannya:
+///
+/// - `volumeIndukL`    air yang KELUAR dari instalasi, dibaca meter induk zona.
+/// - `volumeTercatatL` air yang SAMPAI dan terbaca di meter pelanggan.
+///
+/// Selisih keduanya adalah air tak berekening (NRW). Tanpa tabel ini NRW tidak
+/// bisa dihitung sama sekali — `EmberPemakaian` hanya mengenal sisi pelanggan,
+/// sehingga kehilangan air akan selalu terbaca 0%. Itu sebabnya `/statistik`
+/// mengirim `volumeDisalurkanM3: null` dan pita angka di halaman depan
+/// menampilkan "—" pada ubin "Kehilangan air".
+///
+/// Satu baris per zona per hari: meter induk dibaca tiap 15 menit, tetapi yang
+/// dipakai pelaporan publik adalah tutup harian pukul 02.00 WIB. Baris harian
+/// juga yang membuat rentang 7/30/90 hari dan tren 12 bulan dijawab dari sumber
+/// yang sama persis, bukan dari dua hitungan yang bisa berselisih.
+model NeracaHarian {
+  id              String   @id @default(cuid())
+  zonaId          String
+  /// Tanggal setempat (WIB), bukan cap waktu. Satu hari = satu baris.
+  tanggal         DateTime @db.Date
+  volumeIndukL    Decimal  @db.Decimal(14, 2)
+  volumeTercatatL Decimal  @db.Decimal(14, 2)
+
+  zona Zona @relation(fields: [zonaId], references: [id], onDelete: Cascade)
+
+  @@unique([zonaId, tanggal])
+  @@index([tanggal])
 }
 
 model Meter {
