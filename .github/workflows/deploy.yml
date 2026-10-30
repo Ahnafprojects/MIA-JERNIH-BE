@@ -47,7 +47,18 @@ jobs:
             cp docker-compose.example.yml docker-compose.yml
           fi
           docker compose up -d --build
-          docker compose exec -T app sh -c "npx prisma migrate deploy"
+          # `< /dev/null` WAJIB pada tiap `docker compose exec -T`.
+          #
+          # Skrip ini dikirim lewat stdin ssh (heredoc). `exec -T` mewarisi
+          # stdin yang sama dan MENELAN sisa skripnya sebagai masukan untuk
+          # perintah di dalam kontainer. Selama hanya ada satu baris exec dan
+          # ia yang terakhir, tidak ada yang hilang — begitu baris kedua
+          # ditambahkan, baris itu tidak pernah dijalankan.
+          #
+          # Yang paling berbahaya: tidak ada yang gagal. `set -e` tidak
+          # melihat galat, job-nya hijau, dan satu-satunya tanda adalah tabel
+          # yang tetap kosong di produksi.
+          docker compose exec -T app sh -c "npx prisma migrate deploy" < /dev/null
           # Mengisi tabel yang baru dibuat migrasi, kalau masih kosong.
           # Migrasi membuat `NeracaHarian`, tetapi tabel kosong membuat
           # /statistik melaporkan kehilangan air 0% — dan 0% yang salah lebih
@@ -55,5 +66,5 @@ jobs:
           # Aman diulang: berhenti tanpa menulis kalau tabelnya sudah terisi.
           # `node dist/...`, bukan `npx tsx`: image produksi menjalankan
           # `npm prune --omit=dev`, jadi tsx tidak ada di sana.
-          docker compose exec -T app sh -c "node dist/prisma/isi-neraca.js"
+          docker compose exec -T app sh -c "node dist/prisma/isi-neraca.js" < /dev/null
           REMOTE
