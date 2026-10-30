@@ -434,8 +434,78 @@ publikRouter.get("/statistik", async (req: Request, res: Response, next: NextFun
       totalPelanggan: z._count.pengguna,
     }));
 
+    /*
+     * Deret pemakaian harian, dari EmberPemakaian — bukan dikarang.
+     *
+     * Dipakai grafik di halaman /statistik. Hari tanpa catatan bernilai 0,
+     * bukan dilewati: celah di sumbu waktu membuat grafik berbohong soal
+     * bentuk trennya.
+     */
+    const MS_HARI = 24 * 60 * 60 * 1000;
+    const hariGrafik = Math.min(rentangHari, 30);
+    const mulaiGrafik = new Date(Date.now() - hariGrafik * MS_HARI);
+    const ember = await prisma.emberPemakaian.findMany({
+      where: { jam: { gte: mulaiGrafik } },
+      select: { jam: true, volumeL: true },
+    });
+
+    const perHari = new Map<string, number>();
+    for (const e of ember) {
+      const kunci = e.jam.toISOString().slice(0, 10);
+      perHari.set(kunci, (perHari.get(kunci) ?? 0) + Number(e.volumeL));
+    }
+    const labels: string[] = [];
+    const titikVolume: number[] = [];
+    for (let i = hariGrafik - 1; i >= 0; i--) {
+      const d = new Date(Date.now() - i * MS_HARI);
+      const kunci = d.toISOString().slice(0, 10);
+      labels.push(kunci);
+      titikVolume.push(Number(((perHari.get(kunci) ?? 0) / 1000).toFixed(1)));
+    }
+
+    /*
+     * BENTUK DATAR DI TINGKAT ATAS — ini yang dibaca frontend.
+     *
+     * `src/types/publik.ts` (StatistikPublik) menuntut `pelangganTerlayani`,
+     * `volumeTercatatM3`, `jumlahZona`, `labels`, `series`, dan `perZona` di
+     * tingkat atas. Endpoint ini sebelumnya hanya mengirim `agregat` bersarang
+     * dengan nama berbeda, sehingga SELURUH angka di pita statistik landing
+     * page tampil sebagai "—" — hal pertama yang dilihat pengunjung.
+     *
+     * `agregat` dan `distribusiZona` tetap dikirim supaya pemakai lama tidak
+     * rusak.
+     *
+     * `volumeDisalurkanM3` dan `nrwPct` tetap null: keduanya menuntut angka
+     * air yang DIPRODUKSI instalasi, dan sistem ini hanya mengukur yang
+     * tercatat di meter pelanggan. Mengisinya dengan volume tercatat akan
+     * membuat kehilangan air selalu terbaca 0%.
+     */
+    const volumeZona = new Map<string, number>();
+    for (const m of await prisma.meter.findMany({
+      select: { zonaId: true, volumeTotalL: true },
+    })) {
+      if (!m.zonaId) continue;
+      volumeZona.set(
+        m.zonaId,
+        (volumeZona.get(m.zonaId) ?? 0) + Number(m.volumeTotalL),
+      );
+    }
+
     res.status(200).json({
       rentangHari,
+      pelangganTerlayani: totalPelanggan,
+      volumeDisalurkanM3: null,
+      volumeTercatatM3,
+      nrwPct: null,
+      jumlahZona: totalZona,
+      labels,
+      series: [{ name: "Air tercatat", unit: "m³", points: titikVolume }],
+      perZona: zonaList.map((z) => ({
+        nama: z.nama,
+        pelanggan: z._count.pengguna,
+        volumeM3: Number(((volumeZona.get(z.id) ?? 0) / 1000).toFixed(1)),
+        nrwPct: null,
+      })),
       agregat: {
         totalMeter,
         totalPelanggan,
