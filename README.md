@@ -156,6 +156,20 @@ Semua akun di bawah ini telah disemai secara otomatis dan siap digunakan untuk p
 
 > **Catatan:** Selain akun demo di atas, seed menyertakan **120 akun pelanggan warga** dengan meter air terpasang di 4 zona (Bandung Timur, Cileunyi, Cimahi, Sumedang) lengkap dengan data historis pemakaian 9 hari terakhir.
 
+### Meter yang bisa dihubungkan (untuk menguji onboarding)
+
+Lima meter terakhir sengaja dibiarkan **tanpa pemilik**, supaya alur "hubungkan
+meter" bisa diperagakan dengan akun yang baru didaftarkan:
+
+```
+JRN-10115   JRN-10116   JRN-10117   JRN-10118   JRN-10119
+```
+
+Daftar akun lalu masukkan salah satu serial di layar **Hubungkan Meter**. Satu
+serial hanya bisa diklaim satu kali — meter yang sudah bertuan akan ditolak
+dengan `METER_SUDAH_TERHUBUNG`. Jalankan `npm run db:seed` lagi untuk
+mengembalikan kelimanya.
+
 ---
 
 ## 🧪 Menjalankan Pengujian Otomatis (Test Suite)
