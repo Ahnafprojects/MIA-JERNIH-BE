@@ -47,6 +47,26 @@ function dapatkanTransporter() {
 }
 
 /**
+ * Menyamarkan deretan angka pada subjek sebelum ditulis ke log.
+ *
+ * Subjek email verifikasi memuat kodenya sendiri — "Kode Verifikasi Akun
+ * Jernih: 247445" — dan `kirimEmail` mencatat subjek itu apa adanya. Akibatnya
+ * kode 6 digit tertulis utuh di log server, dan siapa pun yang bisa membaca
+ * log (atau pengumpul log pihak ketiga) bisa menyelesaikan pendaftaran orang
+ * lain atau masuk dari "perangkat baru" tanpa pernah menyentuh kotak masuknya.
+ *
+ * `redact` di `lib/log.ts` sudah menutup `req.body.kode` — yaitu kode saat
+ * DIKIRIM BALIK oleh pengguna — tapi tidak menutup jalur ini, tempat kode itu
+ * DIKIRIMKAN.
+ *
+ * Empat angka ke atas disamarkan: cukup untuk kode 6 digit, dan tidak
+ * menghapus bagian subjek yang berguna saat menelusuri masalah.
+ */
+function subjekAman(subjek: string): string {
+  return subjek.replace(/\d{4,}/g, "••••");
+}
+
+/**
  * Mengirim email transaksional secara aman.
  * Jika MAIL_ENABLED=false atau pengiriman gagal, tidak melempar galat ke pemanggil
  * agar alur utama (seperti pendaftaran pengguna) tidak dibatalkan.
@@ -55,7 +75,7 @@ export async function kirimEmail(opsi: OpsiKirimEmail): Promise<boolean> {
   const cfg = env();
   if (!cfg.MAIL_ENABLED) {
     log.info(
-      { ke: opsi.ke, subjek: opsi.subjek },
+      { ke: opsi.ke, subjek: subjekAman(opsi.subjek) },
       "[EMAIL-MOCK] Pengiriman email dilewati (MAIL_ENABLED=false)",
     );
     return true;
@@ -65,7 +85,7 @@ export async function kirimEmail(opsi: OpsiKirimEmail): Promise<boolean> {
     const transporter = dapatkanTransporter();
     if (!transporter) {
       log.warn(
-        { ke: opsi.ke, subjek: opsi.subjek },
+        { ke: opsi.ke, subjek: subjekAman(opsi.subjek) },
         "[EMAIL] SMTP_HOST belum dikonfigurasi, email gagal dikirim",
       );
       return false;
@@ -79,10 +99,10 @@ export async function kirimEmail(opsi: OpsiKirimEmail): Promise<boolean> {
       html: opsi.html,
     });
 
-    log.info({ ke: opsi.ke, subjek: opsi.subjek }, "[EMAIL] Berhasil terkirim");
+    log.info({ ke: opsi.ke, subjek: subjekAman(opsi.subjek) }, "[EMAIL] Berhasil terkirim");
     return true;
   } catch (err) {
-    log.error({ err, ke: opsi.ke, subjek: opsi.subjek }, "[EMAIL] Gagal mengirim email");
+    log.error({ err, ke: opsi.ke, subjek: subjekAman(opsi.subjek) }, "[EMAIL] Gagal mengirim email");
     return false;
   }
 }
