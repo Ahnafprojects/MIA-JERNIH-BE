@@ -3,10 +3,11 @@
 > **Platform Transparansi Layanan Air Bersih PDAM Terintegrasi Smart Metering & Pelacakan Publik**  
 > Dibuat untuk **Web In Action — Multimedia In Action (MIA) 2026**, Subtema: **Public Service Tracking**.
 
-- **URL Backend Live:** [https://be-jernih.ahnaf.cloud](https://be-jernih.ahnaf.cloud) (Health Check: [`/health`](https://be-jernih.ahnaf.cloud/health))
+- **URL API Live:** [https://api.jernih.biz.id](https://api.jernih.biz.id) — ini yang dipanggil frontend. Health check: [`/health`](https://api.jernih.biz.id/health)
+- **Alias lama:** `https://be-jernih.ahnaf.cloud` (masih hidup, menunjuk server yang sama)
 - **URL Frontend Live:** [https://jernih.biz.id](https://jernih.biz.id) ([Repositori Frontend](https://github.com/Ahnafprojects/MIA-JERNIH-FE))
-- **Status CI/CD:** [![Deploy](https://github.com/Ahnafprojects/MIA-JERNIH-BE/actions/workflows/deploy.yml/badge.svg)](https://github.com/Ahnafprojects/MIA-JERNIH-BE/actions/workflows/deploy.yml) (Automated GitHub Actions via Cloudflare Tunnel)
-- **Status Pengujian:** 50/50 Tests Passed (13 Test Suites Vitest, 100% Lolos)
+- **Status CI/CD:** [![Deploy](https://github.com/Ahnafprojects/MIA-JERNIH-BE/actions/workflows/deploy.yml/badge.svg)](https://github.com/Ahnafprojects/MIA-JERNIH-BE/actions/workflows/deploy.yml) (GitHub Actions via Cloudflare Tunnel)
+- **Status Pengujian:** 63/63 lolos (14 suite Vitest)
 
 ---
 
@@ -175,7 +176,9 @@ mengembalikan kelimanya.
 
 ## 🧪 Menjalankan Pengujian Otomatis (Test Suite)
 
-Repositori ini dilengkapi rangkaian tes otomatis komprehensif yang menguji seluruh aspek fungsionalitas, keamanan, dan integritas data (50 unit & integration tests).
+Repositori ini dilengkapi rangkaian tes otomatis yang menguji fungsionalitas, keamanan, dan integritas data (**63 tes** dalam 14 suite).
+
+> Sebagian tes membutuhkan basis data; tanpa kontainer di langkah 1 seluruhnya gagal dengan `DatabaseDoesNotExist`, dan itu kegagalan lingkungan, bukan kode.
 
 Tes dirancang mandiri menggunakan database pengujian terpisah pada **port 5435** agar tidak merusak data pengembangan lokal Anda.
 
@@ -208,8 +211,14 @@ Semua rute beralamat dasar `/api` dengan pembagian modul berikut:
 - `GET /api/publik/status-layanan` — Kondisi suplai air per zona (normal / gangguan / perbaikan)
 - `GET /api/publik/lacak/:nomor` — Lacak status pengaduan warga berdasarkan nomor tiket (tanpa PII)
 - `GET /api/publik/kinerja` — Rapor metrik SLA 30 hari, waktu tanggap, dan tren ketepatan
-- `GET /api/publik/statistik` — Total meter, pelanggan terdaftar, dan agregat volume distribusi
+- `GET /api/publik/statistik?rentang=30` — Air disalurkan, air tercatat, kehilangan air (NRW), deret harian, dan rincian per zona
+- `GET /api/publik/neraca-air?rentang=30` — Neraca air lengkap: delapan komponen kehilangan (kerangka IWA), tolok ukur, pemakaian per orang, dan tren 12 bulan
+- `GET /api/publik/unduh?set=harian&format=csv&rentang=30` — Data mentah. `set`: `harian`, `zona`, `neraca`, `bulanan`. `format`: `csv`, `json`
+- `GET /api/publik/panduan-lacak` — Janji waktu tiap kategori, tahapan penanganan, kanal lapor, dan nomor contoh
+- `GET /api/publik/riwayat-zona` — Riwayat gangguan per zona
 - `GET /api/publik/peta` — GeoJSON poligon batas zona dan rekapitulasi gangguan wilayah
+
+> `rentang` pada `/neraca-air` dan `/unduh` hanya menerima **7, 30, atau 90**; nilai lain jatuh ke 30 — bukan menjadi galat. Rincian neraca air berasal dari audit triwulanan, dan menyajikannya untuk rentang 3 hari akan terbaca seolah komponennya diukur harian.
 
 ### 2. Autentikasi & Akun
 - `POST /api/auth/daftar` — Registrasi akun warga baru
@@ -262,6 +271,92 @@ Semua rute beralamat dasar `/api` dengan pembagian modul berikut:
 
 ---
 
+## 💧 Neraca Air: dari mana angka kehilangan air berasal
+
+Bagian ini menjelaskan satu keputusan yang tidak kelihatan dari membaca kode.
+
+**Masalahnya.** Air tak berekening (*non-revenue water*, NRW) adalah selisih
+antara air yang **keluar dari instalasi** dan air yang **terbaca di meter
+pelanggan**. Tabel `EmberPemakaian` hanya mengenal sisi pelanggan. Tanpa angka
+pertama, NRW tidak bisa dihitung sama sekali — dan selama itu `/statistik`
+mengirim `nrwPct: null`, sehingga ubin "Kehilangan air" di halaman depan
+selamanya menampilkan "—" pada portal yang justru menjual transparansi
+kehilangan air.
+
+**Jawabannya.** Model `NeracaHarian` menyimpan dua angka berdampingan, satu
+baris per zona per hari:
+
+| Kolom | Artinya |
+| --- | --- |
+| `volumeIndukL` | Air yang keluar dari instalasi, dibaca meter induk zona |
+| `volumeTercatatL` | Air yang sampai dan terbaca di meter pelanggan |
+
+Seluruh endpoint hanya menjumlah dan membagi isi tabel ini. Tidak ada angka
+yang dikarang saat permintaan masuk.
+
+**Satu sumber hitungan.** `src/lib/neraca.ts` melayani `/statistik`,
+`/neraca-air`, dan `/unduh` sekaligus. Kalau masing-masing menghitung sendiri,
+ketiganya berselisih begitu rentang waktunya diganti — dan orang pertama yang
+mencocokkan angka di layar dengan isi berkas unduhan akan menyimpulkan salah
+satunya dikarang, tanpa tahu yang mana. Dijaga pengujian: `/statistik` dan
+`/neraca-air` wajib mengirim angka yang sama pada rentang yang sama, dan isi
+berkas unduhan wajib menjumlah kembali ke angka di layar.
+
+**Rincian membagi habis.** Delapan komponen kerangka IWA dibagi memakai metode
+sisa terbesar, bukan pembulatan biasa. Pembulatan biasa pada delapan baris
+meleset beberapa m³, dan baris "jumlah" di halaman akan berbeda dari angka
+besar di atasnya.
+
+**Status datanya.** Isi `NeracaHarian` adalah data **peragaan** yang
+dibangkitkan dari benih tetap di `prisma/neraca-demo.ts` — jaringan ini belum
+punya meter induk fisik. Yang bukan peragaan adalah tempatnya: ia tersimpan di
+basis data, dan API memperlakukannya sama seperti data sungguhan. Mengganti
+sumbernya nanti cukup dengan mengisi tabel yang sama dari bacaan sebenarnya;
+tidak ada baris kode endpoint yang perlu berubah.
+
+Produksi hariannya **diturunkan dari jumlah sambungan**, tidak dipatok. Versi
+pertama memakai 1180 m³/hari — angka masuk akal untuk sebuah kota, tetapi
+basis data demo ini berisi 120 sambungan, dan halaman melaporkan 2.028
+liter/orang/hari dengan "pemenuhan kebutuhan dasar" 3.381%. Sekarang sekitar
+161 L/orang/hari.
+
+---
+
+## 🚢 Penyebaran (Deployment)
+
+Push ke `main` memicu `.github/workflows/deploy.yml`: SSH lewat Cloudflare
+Tunnel, `git reset --hard origin/main`, `docker compose up -d --build`, lalu
+dua perintah di dalam kontainer.
+
+```bash
+docker compose exec -T app sh -c "npx prisma migrate deploy" < /dev/null
+docker compose exec -T app sh -c "node dist/prisma/isi-neraca.js" < /dev/null
+```
+
+Tiga hal di dua baris itu yang mahal dipelajari:
+
+**`< /dev/null` wajib pada setiap baris `exec`.** Badan skrip dikirim ke
+server lewat stdin ssh (heredoc). `docker compose exec -T` mewarisi stdin yang
+sama dan **menelan sisa skrip** sebagai masukan untuk perintah di dalam
+kontainer. Selama hanya ada satu baris `exec` dan ia yang terakhir, tidak ada
+yang hilang. Begitu baris kedua ditambahkan, baris itu tidak pernah
+dijalankan — dan tidak ada yang gagal: `set -e` tidak melihat galat, log
+berhenti begitu saja sesudah migrasi, job-nya hijau, dan satu-satunya tanda
+adalah tabel yang tetap kosong di produksi.
+
+**`node dist/...`, bukan `npx tsx`.** Image produksi menjalankan `npm prune
+--omit=dev`, jadi `tsx` tidak ada di sana. `prisma/**/*.ts` ikut
+`tsconfig.json`, sehingga `npm run build` sudah memancarkan
+`dist/prisma/isi-neraca.js`.
+
+**`isi-neraca.ts`, bukan `seed.ts`.** Seed mengosongkan seluruh tabel lebih
+dulu; menjalankannya di server akan menghapus akun, tiket, dan transaksi yang
+sudah ada. Skrip pengisi hanya menulis kalau `NeracaHarian` masih kosong, dan
+berhenti tanpa menyentuh apa pun kalau sudah terisi — aman dijalankan setiap
+kali deploy.
+
+---
+
 ## 🔒 Standar Format Jawaban Galat (Error Contract)
 
 Seluruh galat API dikembalikan dalam format JSON terstandarisasi dengan pesan Bahasa Indonesia yang siap dikonsumsi langsung oleh antarmuka frontend:
@@ -301,10 +396,14 @@ MIA-Jernih-Backend/
 │   └── deploy.yml
 ├── prisma/
 │   ├── migrations/             # Berkas migrasi database PostgreSQL
-│   ├── schema.prisma           # Skema 15 model entitas relasional
+│   ├── schema.prisma           # Skema 16 model entitas relasional
+│   ├── neraca-demo.ts          # Pembangkit bacaan meter induk (dipakai seed DAN isi-neraca)
+│   ├── isi-neraca.ts           # Mengisi NeracaHarian di server TANPA menghapus data lain
 │   └── seed.ts                 # Script seeding data realistis (120 meter & akun)
 ├── src/
 │   ├── lib/                    # Utilitas inti: auth, prisma client, email, errors, logger
+│   │   ├── neraca.ts           # Satu sumber hitungan neraca air untuk 3 endpoint
+│   │   └── unduh.ts            # Kumpulan data + penulis CSV (RFC 4180) & JSON
 │   ├── middleware/             # Verifikasi sesi JWT, guard peran (RBAC), rate limiter
 │   ├── rute/                   # Modular route controllers:
 │   │   ├── auth.ts             # Registrasi, login, verifikasi OTP, reset password
@@ -321,7 +420,7 @@ MIA-Jernih-Backend/
 │   ├── env.ts                  # Parsing & validasi konfigurasi environment (fail-fast)
 │   ├── server.ts               # Entrypoint HTTP server & graceful shutdown
 │   └── ws.ts                   # WebSocket manager & room broadcast engine
-├── tests/                      # Rangkaian 13 suite tes integrasi (Vitest)
+├── tests/                      # Rangkaian 14 suite tes integrasi (Vitest)
 ├── Dockerfile                  # Multi-stage Docker build production
 ├── docker-compose.example.yml  # Definisi compose untuk deployment & database test
 ├── package.json
