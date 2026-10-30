@@ -18,6 +18,7 @@
  * Dijalankan ulang dengan aman: seluruh tabel dikosongkan lebih dulu (idempoten).
  */
 import { PrismaPg } from "@prisma/adapter-pg";
+import { HARI_NERACA, barisNeraca } from "./neraca-demo.js";
 import {
   PrismaClient,
   Peran,
@@ -180,6 +181,7 @@ export async function jalankanSeed() {
     prisma.notifikasi.deleteMany(),
     prisma.broadcast.deleteMany(),
     prisma.emberPemakaian.deleteMany(),
+    prisma.neracaHarian.deleteMany(),
     prisma.riwayatMeter.deleteMany(),
     prisma.token.deleteMany(),
     prisma.transaksi.deleteMany(),
@@ -216,6 +218,26 @@ export async function jalankanSeed() {
     if (!id) throw new Error(`Zona tidak dikenal: ${nama}`);
     return id;
   };
+
+  /* ── 1b. Neraca Air Harian per Zona ─────────────────────────────────── */
+  /*
+   * Sumber tunggal untuk kehilangan air (NRW).
+   *
+   * `EmberPemakaian` hanya mengenal sisi pelanggan dan hanya 9 hari ke
+   * belakang. Itu cukup untuk grafik pemakaian, tetapi tidak bisa menjawab
+   * dua pertanyaan yang justru paling sering ditanyakan tentang PDAM: berapa
+   * air yang hilang, dan apakah angkanya membaik. Keduanya menuntut air yang
+   * DIPRODUKSI, dan itu hanya ada di meter induk.
+   *
+   * Rumusnya tinggal di `./neraca-demo.ts` supaya `prisma/isi-neraca.ts` —
+   * yang mengisi server tanpa menghapus apa pun — memakai angka yang sama
+   * persis.
+   */
+  const barisNya = barisNeraca(petaZona, JUMLAH_PELANGGAN);
+  for (let i = 0; i < barisNya.length; i += 3000) {
+    await prisma.neracaHarian.createMany({ data: barisNya.slice(i, i + 3000) });
+  }
+  console.log(`neraca harian ${HARI_NERACA} hari x ${ZONA.length} zona: ${barisNya.length}`);
 
   /* ── 2. 4 Golongan Tarif ────────────────────────────────────────────── */
   const golongan = await Promise.all([

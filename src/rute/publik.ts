@@ -12,6 +12,20 @@ import rateLimit from "express-rate-limit";
 import { prisma } from "../lib/prisma.js";
 import { notFound } from "../lib/errors.js";
 import { JAM_SLA_KATEGORI } from "./tiket.js";
+import {
+  deretHarian,
+  neracaAir,
+  perZonaNeraca,
+  rentangSah,
+  ringkasNeraca,
+} from "../lib/neraca.js";
+import {
+  SET_TERSEDIA,
+  buatKumpulan,
+  keCsv,
+  keJson,
+  namaBerkas,
+} from "../lib/unduh.js";
 
 export const publikRouter: Router = Router();
 
@@ -402,22 +416,36 @@ publikRouter.get("/statistik", async (req: Request, res: Response, next: NextFun
       }),
     ]);
 
-    const volumeTercatatM3 = Number(
+    /*
+     * Volume SEUMUR HIDUP meter, bukan volume rentang ini.
+     *
+     * Tetap dikirim di dalam `agregat` karena pemakai lama membacanya, tetapi
+     * TIDAK lagi dipakai sebagai `volumeTercatatM3` di tingkat atas: ubin di
+     * halaman depan berlabel "Air tercatat 30 hari terakhir", dan mengisinya
+     * dengan total sejak meter dipasang membuat labelnya berbohong.
+     */
+    const volumeSeumurHidupM3 = Number(
       ((riwayatVolume._sum.volumeTotalL?.toNumber() ?? 0) / 1000).toFixed(1),
     );
 
     /*
-     * NRW (air tak berekening) TIDAK dilaporkan sampai bisa dihitung.
+     * NRW kini DIHITUNG, bukan `null`.
      *
-     * Sebelumnya nilainya dipatok `14.8` dan disajikan sebagai statistik
-     * jaringan. Menghitungnya sungguhan butuh angka air yang DIPRODUKSI
-     * (keluaran instalasi/induk), dan itu belum ada di basis data mana pun —
-     * yang tercatat hanya yang terpakai di meter pelanggan.
+     * Sebelumnya nilainya dipatok `14.8`, lalu diganti `null` karena memang
+     * belum ada angka air yang DIPRODUKSI di basis data mana pun — yang
+     * tercatat hanya yang terpakai di meter pelanggan. `null` jujur, tetapi
+     * akibatnya ubin "Kehilangan air" di halaman depan selamanya menampilkan
+     * "—" pada portal yang menjual transparansi kehilangan air.
      *
-     * `null` jujur dan bisa disembunyikan antarmuka; angka karangan tidak
-     * bisa ditarik kembali setelah dikutip orang.
+     * Tabel `NeracaHarian` menutup lubang itu pada sumbernya: ia menyimpan
+     * bacaan meter induk tiap zona berdampingan dengan yang tercatat di meter
+     * pelanggan. Yang dilakukan di sini hanya menjumlah dan membagi.
      */
-    const nrwRataPct: number | null = null;
+    const [ringkas, deret, perZonaBaris] = await Promise.all([
+      ringkasNeraca(rentangHari),
+      deretHarian(Math.min(rentangHari, 90)),
+      perZonaNeraca(rentangHari),
+    ]);
 
     const zonaList = await prisma.zona.findMany({
       include: {
@@ -434,34 +462,9 @@ publikRouter.get("/statistik", async (req: Request, res: Response, next: NextFun
       totalPelanggan: z._count.pengguna,
     }));
 
-    /*
-     * Deret pemakaian harian, dari EmberPemakaian — bukan dikarang.
-     *
-     * Dipakai grafik di halaman /statistik. Hari tanpa catatan bernilai 0,
-     * bukan dilewati: celah di sumbu waktu membuat grafik berbohong soal
-     * bentuk trennya.
-     */
-    const MS_HARI = 24 * 60 * 60 * 1000;
-    const hariGrafik = Math.min(rentangHari, 30);
-    const mulaiGrafik = new Date(Date.now() - hariGrafik * MS_HARI);
-    const ember = await prisma.emberPemakaian.findMany({
-      where: { jam: { gte: mulaiGrafik } },
-      select: { jam: true, volumeL: true },
-    });
-
-    const perHari = new Map<string, number>();
-    for (const e of ember) {
-      const kunci = e.jam.toISOString().slice(0, 10);
-      perHari.set(kunci, (perHari.get(kunci) ?? 0) + Number(e.volumeL));
-    }
-    const labels: string[] = [];
-    const titikVolume: number[] = [];
-    for (let i = hariGrafik - 1; i >= 0; i--) {
-      const d = new Date(Date.now() - i * MS_HARI);
-      const kunci = d.toISOString().slice(0, 10);
-      labels.push(kunci);
-      titikVolume.push(Number(((perHari.get(kunci) ?? 0) / 1000).toFixed(1)));
-    }
+    const petaPelangganZona = new Map(
+      zonaList.map((z) => [z.id, z._count.pengguna]),
+    );
 
     /*
      * BENTUK DATAR DI TINGKAT ATAS — ini yang dibaca frontend.
@@ -475,46 +478,144 @@ publikRouter.get("/statistik", async (req: Request, res: Response, next: NextFun
      * `agregat` dan `distribusiZona` tetap dikirim supaya pemakai lama tidak
      * rusak.
      *
-     * `volumeDisalurkanM3` dan `nrwPct` tetap null: keduanya menuntut angka
-     * air yang DIPRODUKSI instalasi, dan sistem ini hanya mengukur yang
-     * tercatat di meter pelanggan. Mengisinya dengan volume tercatat akan
-     * membuat kehilangan air selalu terbaca 0%.
+     * Deretnya kini DUA: air disalurkan dan air tercatat. Satu deret saja
+     * tidak bisa memperlihatkan kehilangan air, dan jarak antara kedua garis
+     * itulah yang sebenarnya ingin dilihat orang di halaman ini.
+     *
+     * Sumbernya `NeracaHarian`, bukan `EmberPemakaian`. `EmberPemakaian`
+     * hanya menyimpan 9 hari ke belakang, jadi grafik 30 hari yang disusun
+     * darinya berisi 21 hari bernilai nol dan terbaca seolah jaringannya mati
+     * tiga minggu.
      */
-    const volumeZona = new Map<string, number>();
-    for (const m of await prisma.meter.findMany({
-      select: { zonaId: true, volumeTotalL: true },
-    })) {
-      if (!m.zonaId) continue;
-      volumeZona.set(
-        m.zonaId,
-        (volumeZona.get(m.zonaId) ?? 0) + Number(m.volumeTotalL),
-      );
-    }
+    const labels = deret.map((d) => d.tanggal);
 
     res.status(200).json({
       rentangHari,
       pelangganTerlayani: totalPelanggan,
-      volumeDisalurkanM3: null,
-      volumeTercatatM3,
-      nrwPct: null,
+      volumeDisalurkanM3: ringkas.disalurkanM3,
+      volumeTercatatM3: ringkas.tercatatM3,
+      nrwPct: ringkas.nrwPct,
       jumlahZona: totalZona,
       labels,
-      series: [{ name: "Air tercatat", unit: "m³", points: titikVolume }],
-      perZona: zonaList.map((z) => ({
+      series: [
+        {
+          name: "Air disalurkan",
+          unit: "m³",
+          points: deret.map((d) => d.disalurkanM3),
+        },
+        {
+          name: "Air tercatat",
+          unit: "m³",
+          points: deret.map((d) => d.tercatatM3),
+        },
+      ],
+      perZona: perZonaBaris.map((z) => ({
         nama: z.nama,
-        pelanggan: z._count.pengguna,
-        volumeM3: Number(((volumeZona.get(z.id) ?? 0) / 1000).toFixed(1)),
-        nrwPct: null,
+        pelanggan: petaPelangganZona.get(z.zonaId) ?? 0,
+        volumeM3: z.tercatatM3,
+        nrwPct: z.nrwPct,
       })),
       agregat: {
         totalMeter,
         totalPelanggan,
         totalZona,
-        volumeTercatatM3,
-        nrwRataPct,
+        volumeTercatatM3: ringkas.tercatatM3,
+        volumeSeumurHidupM3,
+        nrwRataPct: ringkas.nrwPct,
       },
       distribusiZona,
     });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/* ── 4b. GET /api/publik/neraca-air?rentang=30 ───────────────────────── */
+
+/*
+ * Neraca air lengkap: ke mana perginya air yang tidak sampai ke meter.
+ *
+ * `/statistik` menjawab BERAPA yang hilang; endpoint ini menjawab KE MANA.
+ * Keduanya dijumlahkan dari tabel yang sama (`NeracaHarian`) lewat
+ * `src/lib/neraca.ts`, jadi angka besar di halaman depan dan rincian di
+ * halaman statistik tidak mungkin berselisih.
+ *
+ * Rentangnya dibatasi 7/30/90 — bukan sembarang angka seperti `/statistik`.
+ * Rincian neraca air berasal dari audit triwulanan; menyajikannya untuk
+ * rentang 3 hari akan terbaca seolah komponennya diukur harian.
+ */
+publikRouter.get("/neraca-air", async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const hari = rentangSah(Number(req.query.rentang) || 30);
+    res.status(200).json(await neracaAir(hari));
+  } catch (err) {
+    next(err);
+  }
+});
+
+/* ── 4c. GET /api/publik/unduh?set=harian&format=csv&rentang=30 ──────── */
+
+/*
+ * Data mentah yang bisa diunduh, dalam CSV atau JSON.
+ *
+ * Janji "data terbuka" di halaman statistik tidak berarti apa-apa kalau
+ * tombol unduhnya 404. Isinya dibangkitkan dari fungsi yang sama dengan yang
+ * menyuapi halaman — lihat `src/lib/unduh.ts` untuk alasan kenapa itu tidak
+ * boleh ditawar.
+ */
+publikRouter.get("/unduh", async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    /*
+     * Hanya nilai yang BENAR-BENAR string yang diterima.
+     *
+     * Express mem-parsing `?set[x]=y` menjadi objek dan `?set=a&set=b`
+     * menjadi array. `String()` pada keduanya menghasilkan "[object Object]"
+     * dan "a,b" — yang lalu muncul utuh di dalam pesan galat yang dikirim
+     * balik ke peramban. Bentuk yang bukan string diperlakukan sebagai tidak
+     * diisi, lalu jatuh ke nilai bawaan.
+     */
+    const teks = (v: unknown, bawaan: string): string =>
+      typeof v === "string" ? v : bawaan;
+
+    const set = teks(req.query.set, "harian");
+    const format = teks(req.query.format, "csv").toLowerCase();
+    const hari = rentangSah(Number(req.query.rentang) || 30);
+
+    if (format !== "csv" && format !== "json") {
+      res.status(400).json({
+        error: {
+          code: "FORMAT_TIDAK_DIDUKUNG",
+          message: `Format "${format}" tidak didukung. Pilihan yang tersedia: csv, json.`,
+        },
+      });
+      return;
+    }
+
+    const kumpulan = await buatKumpulan(set, hari);
+    if (!kumpulan) {
+      res.status(400).json({
+        error: {
+          code: "SET_TIDAK_DIKENAL",
+          message: `Kumpulan data "${set}" tidak ada. Pilihan yang tersedia: ${SET_TERSEDIA.join(", ")}.`,
+        },
+      });
+      return;
+    }
+
+    // `attachment` yang membuat tombol di halaman benar-benar mengunduh
+    // berkas, bukan membuka JSON mentah di tab baru.
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename="${namaBerkas(kumpulan, hari, format)}"`,
+    );
+
+    if (format === "json") {
+      res.status(200).json(keJson(kumpulan, hari));
+      return;
+    }
+
+    res.setHeader("Content-Type", "text/csv; charset=utf-8");
+    res.status(200).send(keCsv(kumpulan));
   } catch (err) {
     next(err);
   }
