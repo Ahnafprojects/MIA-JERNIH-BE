@@ -158,11 +158,12 @@ Semua akun di bawah ini telah disemai secara otomatis dan siap digunakan untuk p
 
 ### Meter yang bisa dihubungkan (untuk menguji onboarding)
 
-Lima meter terakhir sengaja dibiarkan **tanpa pemilik**, supaya alur "hubungkan
-meter" bisa diperagakan dengan akun yang baru didaftarkan:
+**25 meter terakhir** sengaja dibiarkan **tanpa pemilik**, supaya alur
+"hubungkan meter" bisa diperagakan dengan akun yang baru didaftarkan — dan
+supaya beberapa penguji bisa mendaftar berbarengan tanpa kehabisan:
 
 ```
-JRN-10115   JRN-10116   JRN-10117   JRN-10118   JRN-10119
+JRN-10095  …  JRN-10119      (25 serial berurutan)
 ```
 
 Daftar akun lalu masukkan salah satu serial di layar **Hubungkan Meter**. Satu
