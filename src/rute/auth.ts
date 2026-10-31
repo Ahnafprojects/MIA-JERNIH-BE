@@ -455,7 +455,20 @@ authRouter.post(
         where: { penggunaId: pengguna.id },
       });
 
-      if (totalSesi > 0 && !pernahPakaiPerangkatIni) {
+      /*
+       * Akun peragaan dilewatkan dari verifikasi perangkat baru.
+       *
+       * Kodenya dikirim ke alamat `@jernih.id` yang tidak punya kotak surat.
+       * Akibatnya siapa pun yang mencoba akun demo dari peramban baru
+       * mendapat `step: "KODE_EMAIL"` untuk kode yang tidak akan pernah
+       * sampai, lalu terhenti di layar verifikasi. Di produksi itu berarti
+       * SELURUH konsol petugas tidak bisa dibuka sama sekali, karena tiap
+       * peramban baru selalu dianggap perangkat baru.
+       *
+       * Hanya akun yang ditandai `akunDemo` yang dilewatkan. Akun warga
+       * sungguhan tetap melewati verifikasi seperti biasa.
+       */
+      if (totalSesi > 0 && !pernahPakaiPerangkatIni && !pengguna.akunDemo) {
         const kode = buatKodeEmail();
         await prisma.kodeEmail.create({
           data: {
