@@ -9,7 +9,6 @@ Dibuat untuk **Web In Action — Multimedia In Action (MIA) 2026**, subtema **Pu
 | | |
 | --- | --- |
 | API produksi | <https://api.jernih.biz.id> ([health check](https://api.jernih.biz.id/health)) |
-| Alias lama | `https://be-jernih.ahnaf.cloud`, masih aktif dan menunjuk server yang sama |
 | Frontend | <https://jernih.biz.id> ([repositori](https://github.com/Ahnafprojects/MIA-JERNIH-FE)) |
 | Pengujian | 63 tes dalam 14 suite, seluruhnya lolos |
 
