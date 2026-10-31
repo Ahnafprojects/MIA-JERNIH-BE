@@ -21,35 +21,53 @@ const PERANGKAT_B = "Mozilla/5.0 (Windows NT 10.0) PerangkatUjiB";
 const sandi = "rahasia-uji-123";
 let emailDemo = "";
 let emailBiasa = "";
+let emailOperator = "";
 
-beforeAll(async () => {
-  const hash = await argon2.hash(sandi, { type: argon2.argon2id });
+beforeAll(() => {
   const cap = Date.now();
 
   emailDemo = `demo_${cap}@jernih.id`;
   emailBiasa = `biasa_${cap}@contoh.test`;
-
-  for (const [email, akunDemo] of [
-    [emailDemo, true],
-    [emailBiasa, false],
-  ] as const) {
-    await prisma.pengguna.create({
-      data: {
-        nama: "Penguji",
-        email,
-        kataSandiHash: hash,
-        emailTerverifikasiPada: new Date(),
-        akunDemo,
-      },
-    });
-  }
+  emailOperator = `op_${cap}@jernih.id`;
 });
 
-const masuk = (email: string, perangkat: string) =>
-  request(app)
+/*
+ * Akun dipastikan ada SETIAP KALI dipakai, bukan sekali di `beforeAll`.
+ *
+ * `tests/seed.test.ts` memanggil `jalankanSeed()`, yang mengosongkan seluruh
+ * tabel. Vitest menjalankan berkas tes secara paralel, jadi pengosongan itu
+ * bisa jatuh di tengah berkas ini dan menghapus akun yang sudah disiapkan.
+ * Gejalanya login membalas 401 pada tes yang sebelumnya lolos, dan hanya
+ * muncul saat seluruh suite dijalankan bersamaan.
+ */
+async function pastikanAkun(
+  email: string,
+  akunDemo: boolean,
+  peran: "WARGA" | "OPERATOR",
+): Promise<void> {
+  const hash = await argon2.hash(sandi, { type: argon2.argon2id });
+  await prisma.pengguna.upsert({
+    where: { email },
+    update: { kataSandiHash: hash, akunDemo, peran, aktif: true },
+    create: {
+      nama: "Penguji",
+      email,
+      kataSandiHash: hash,
+      emailTerverifikasiPada: new Date(),
+      akunDemo,
+      peran,
+    },
+  });
+}
+
+const masuk = async (email: string, perangkat: string) => {
+  const peran = email.startsWith("op_") ? "OPERATOR" : "WARGA";
+  await pastikanAkun(email, !email.includes("@contoh.test"), peran);
+  return request(app)
     .post("/api/auth/masuk")
     .set("User-Agent", perangkat)
     .send({ email, kataSandi: sandi });
+};
 
 describe("Masuk dari perangkat baru", () => {
   it("akun peragaan langsung mendapat sesi, bukan diminta kode email", async () => {
@@ -90,6 +108,80 @@ describe("Masuk dari perangkat baru", () => {
       .send({ email: emailDemo, kataSandi: "bukan-sandinya" });
     expect(res.status).toBe(401);
     expect(res.body.error.code).toBe("KREDENSIAL_SALAH");
+  });
+});
+
+describe("GET /api/admin/pelanggan — bentuk yang dibaca konsol", () => {
+  let tokenOp = "";
+
+  beforeAll(async () => {
+    const res = await masuk(emailOperator, PERANGKAT_A);
+    tokenOp = res.body.accessToken ?? "";
+  });
+
+  it("mengirim seluruh medan yang dipakai halaman, termasuk jumlahStatus", async () => {
+    const res = await request(app)
+      .get("/api/admin/pelanggan?halaman=1&per=25&urut=nama&arah=naik")
+      .set("Authorization", `Bearer ${tokenOp}`);
+    expect(res.status).toBe(200);
+
+    /*
+     * `jumlahStatus` yang hilang dulu membuat `jumlahStatus[s]` melempar saat
+     * render, dan batas galat Next mengganti SELURUH halaman daftar pelanggan
+     * dengan "This page couldn't load".
+     */
+    for (const medan of [
+      "baris",
+      "total",
+      "halaman",
+      "perHalaman",
+      "halamanTerakhir",
+      "jumlahSaring",
+      "jumlahStatus",
+      "zona",
+    ]) {
+      expect(res.body).toHaveProperty(medan);
+    }
+
+    expect(Array.isArray(res.body.baris)).toBe(true);
+    expect(Object.keys(res.body.jumlahStatus).sort()).toEqual([
+      "alarm",
+      "insiden",
+      "normal",
+      "offline",
+    ]);
+    expect(Object.keys(res.body.jumlahSaring).sort()).toEqual([
+      "aktif",
+      "insiden",
+      "nonaktif",
+      "offline",
+      "saldo-menipis",
+    ]);
+  });
+
+  it("tiap baris membawa medan meter yang dibaca tabel", async () => {
+    const res = await request(app)
+      .get("/api/admin/pelanggan?halaman=1&per=5")
+      .set("Authorization", `Bearer ${tokenOp}`);
+    const b = res.body.baris[0];
+    if (!b) return; // basis data uji boleh kosong
+    for (const medan of [
+      "id", "nama", "zonaId", "zona", "saldoL", "debitLpm",
+      "relayOn", "online", "adaInsiden", "koordinat", "terakhirLapor", "status",
+    ]) {
+      expect(b).toHaveProperty(medan);
+    }
+    expect(["normal", "alarm", "insiden", "offline"]).toContain(b.status);
+    expect(Array.isArray(b.koordinat)).toBe(true);
+  });
+
+  it("mengurutkan menurut parameter urut dan arah", async () => {
+    const res = await request(app)
+      .get("/api/admin/pelanggan?halaman=1&per=50&urut=saldo&arah=naik")
+      .set("Authorization", `Bearer ${tokenOp}`);
+    const saldo = res.body.baris.map((x: { saldoL: number }) => x.saldoL);
+    const urut = [...saldo].sort((a: number, b: number) => a - b);
+    expect(saldo).toEqual(urut);
   });
 });
 
