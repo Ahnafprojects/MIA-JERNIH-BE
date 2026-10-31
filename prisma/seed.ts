@@ -271,6 +271,11 @@ export async function jalankanSeed() {
         emailTerverifikasiPada: new Date(),
         zonaId: zonaId("Bandung Timur"),
         golonganId: ambilGolongan(0),
+        // Dilewatkan dari verifikasi perangkat baru. Kodenya dikirim ke
+        // alamat @jernih.id yang tidak punya kotak surat, jadi tanpa penanda
+        // ini akun demo terkunci di peramban mana pun yang belum pernah
+        // dipakai — dan konsol petugas tidak bisa dibuka sama sekali.
+        akunDemo: true,
       },
     });
     stafRecords.push(rec);
@@ -302,6 +307,7 @@ export async function jalankanSeed() {
     golonganId: string;
     emailTerverifikasiPada: Date;
     aktif: boolean;
+    akunDemo: boolean;
   }> = [];
 
   const meter: Array<{
@@ -354,6 +360,7 @@ export async function jalankanSeed() {
       golonganId: ambilGolongan(r() > 0.85 ? 1 : 0),
       emailTerverifikasiPada: new Date(kini - Math.floor(r() * 300) * 24 * JAM),
       aktif: true,
+      akunDemo: true,
     });
 
     meter.push({
@@ -500,17 +507,42 @@ export async function jalankanSeed() {
   await prisma.transaksi.createMany({ data: transaksiList });
   console.log(`token: ${tokenList.length}   transaksi: ${transaksiList.length}`);
 
-  /* ── 8. Tiket dengan Ketepatan SLA Wajar (85–95%) ───────────────────── */
-  const tiketList = Array.from({ length: 60 }, (_, i) => {
+  /* ── 8. Tiket dengan Ketepatan SLA yang Membaik dari Waktu ke Waktu ──── */
+  /*
+   * 320 tiket tersebar 100 hari, bukan 60 tiket dalam 25 hari.
+   *
+   * Dua alasan. Pertama, halaman Rapor Kinerja melayani rentang 7, 30, dan 90
+   * hari; dengan sebaran 25 hari, rentang 90 hari berisi 65 hari kosong dan
+   * grafiknya putus-putus. Kedua, ember harian pada rentang 7 hari butuh
+   * cukup tiket per hari agar persentasenya tidak melonjak liar antara 0%
+   * dan 100% hanya karena satu tiket.
+   *
+   * Ketepatannya MEMBAIK seiring waktu, dari sekitar 78% menjadi 93%.
+   * Ketepatan acak menghasilkan garis bergerigi tanpa arah, dan grafik yang
+   * tidak punya arah tidak menjawab pertanyaan yang dibawa pembaca ke
+   * halaman itu: apakah layanannya membaik atau memburuk.
+   */
+  const JUMLAH_TIKET = 320;
+  const HARI_TIKET = 100;
+
+  /** Nomor urut per bulan, supaya penomorannya tidak bertabrakan. */
+  const urutBulan = new Map<string, number>();
+
+  const tiketList = Array.from({ length: JUMLAH_TIKET }, () => {
     const [kategori, slaJam] = pilih(KATEGORI_TIKET);
     const m = pilih(contoh);
-    const dibuat = new Date(kini - Math.floor(r() * 25 * 24) * JAM);
+    const umurHari = r() * HARI_TIKET;
+    const dibuat = new Date(kini - umurHari * 24 * JAM);
     const jatuhTempo = new Date(dibuat.getTime() + (slaJam as number) * JAM);
 
+    // Peluang telat menyusut dari ~22% (100 hari lalu) menjadi ~7% (kini).
+    const peluangTelat = 0.07 + (umurHari / HARI_TIKET) * 0.15;
+
     const selesai = r() > 0.1;
-    // ~90% tepat waktu, 10% sengaja lewat SLA agar rapor realistis
-    const telat = r() < 0.1;
-    const durasiSelesaiJam = telat ? (slaJam as number) * 1.5 : (slaJam as number) * 0.6;
+    const telat = r() < peluangTelat;
+    const durasiSelesaiJam = telat
+      ? (slaJam as number) * (1.1 + r() * 0.8)
+      : (slaJam as number) * (0.25 + r() * 0.6);
     const selesaiPada = selesai ? new Date(dibuat.getTime() + durasiSelesaiJam * JAM) : null;
 
     const status = selesai
@@ -528,8 +560,19 @@ export async function jalankanSeed() {
         ? null
         : new Date(dibuat.getTime() + (15 + Math.floor(r() * 165)) * 60_000);
 
+    /*
+     * Nomor diturunkan dari TANGGAL TIKETNYA, bukan dipatok ke satu bulan.
+     *
+     * Versi sebelumnya menulis `LP-2026-10-` untuk seluruh tiket, sehingga
+     * tiket bertanggal September tetap bernomor Oktober. Orang pertama yang
+     * mencocokkan nomor dengan tanggal di halaman lacak akan menemukannya.
+     */
+    const kunciBulan = `${dibuat.getFullYear()}-${String(dibuat.getMonth() + 1).padStart(2, "0")}`;
+    const urut = (urutBulan.get(kunciBulan) ?? 0) + 1;
+    urutBulan.set(kunciBulan, urut);
+
     return {
-      nomor: `LP-2026-10-${String(i + 1).padStart(4, "0")}`,
+      nomor: `LP-${kunciBulan}-${String(urut).padStart(4, "0")}`,
       pelaporId: m.penggunaId,
       meterId: m.id,
       kategori: kategori as string,
