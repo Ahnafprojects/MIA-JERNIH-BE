@@ -110,6 +110,41 @@ DEMO_TOKEN_ENABLED=true
 SEED_PASSWORD=admin123
 ```
 
+`src/env.ts` memvalidasi seluruhnya dengan Zod dan **gagal saat start** kalau
+ada yang salah. Itu disengaja: konfigurasi yang keliru harus menjatuhkan
+server pada detik pertama, bukan muncul sebagai perilaku aneh tiga jam
+kemudian.
+
+| Variabel | Bawaan | Keterangan |
+| --- | --- | --- |
+| `NODE_ENV` | `development` | `development` / `test` / `production` |
+| `PORT` | `4000` | Porta HTTP |
+| `DATABASE_URL` | — | **Wajib.** URL PostgreSQL |
+| `JWT_SECRET` | — | **Wajib, minimal 32 karakter.** Kunci tanda tangan access token |
+| `ACCESS_TTL_MENIT` | `15` | Umur access token |
+| `REFRESH_TTL_HARI` | `30` | Umur refresh token |
+| `CORS_ORIGIN` | `http://localhost:3000` | Asal yang boleh memanggil, dipisah koma |
+| `APP_URL` | `http://localhost:3000` | Alamat portal; dipakai menyusun tautan di email |
+| `PAYMENT_WEBHOOK_SECRET` | *(kosong)* | Rahasia HMAC webhook pembayaran |
+| `MAIL_ENABLED` | `false` | Kirim email sungguhan lewat SMTP |
+| `SMTP_HOST` / `SMTP_PORT` | — / `587` | Server SMTP |
+| `SMTP_USER` / `SMTP_PASS` | — | Kredensial SMTP |
+| `MAIL_FROM` | `Jernih <noreply@jernih.id>` | Pengirim email |
+| `PAYMENT_AUTO_SETTLE` | `true` | Pembelian langsung lunas tanpa menunggu webhook |
+| `DEMO_TOKEN_ENABLED` | `false` | Mengizinkan token peragaan `1111` (+5 L) dan `2222` (+10 L) |
+| `SEED_PASSWORD` | `admin123` | Kata sandi seluruh akun hasil seed |
+
+### ⚠️ Tiga variabel yang berbahaya di produksi
+
+| Variabel | Kenapa berbahaya |
+| --- | --- |
+| `PAYMENT_AUTO_SETTLE=true` | Siapa pun yang bisa memanggil `POST /api/pembayaran/buat` mendapat air **gratis**. Wajib `false` begitu pembayaran sungguhan dipasang. |
+| `DEMO_TOKEN_ENABLED=true` | Saldo bisa ditambah tanpa transaksi lewat kode `1111`/`2222`. |
+| `PAYMENT_WEBHOOK_SECRET` kosong | Endpoint webhook **menolak semua permintaan**. Itu memang pilihan yang diambil: lebih baik pembayaran tidak terproses daripada saldo bisa diisi siapa saja. Nilai cadangan yang pernah ditulis di kode sudah dibuang — siapa pun yang membaca repo bisa menandatangani webhook palsu dengannya. |
+
+Keduanya yang pertama bernilai `true` di `.env.example` **karena berkas itu
+untuk peragaan lokal**, bukan untuk produksi.
+
 #### 3. Jalankan Database PostgreSQL
 Gunakan Docker untuk menjalankan PostgreSQL instan:
 ```bash
@@ -266,8 +301,104 @@ Semua rute beralamat dasar `/api` dengan pembagian modul berikut:
 - `POST /api/admin/token/buat` — Penerbitan token darurat oleh supervisor
 
 ### 7. Realtime WebSocket
-- **URL Koneksi:** `ws://<host>/ws?token=<accessToken>&rooms=meter:<meterId>`
-- **Fitur:** Heartbeat ping/pong otomatis setiap 30 detik, isolasi otorisasi kamar, push relay event, saldo meter, dan sinkronisasi live dashboard.
+
+```
+ws://<host>/ws?token=<accessToken>&rooms=meter:P001,admin:dashboard
+```
+
+**Kamar ditentukan di query string saat menyambung, bukan lewat pesan
+`subscribe`.** Tidak ada protokol berlangganan setelah koneksi terbuka —
+kalau ingin memantau meter lain, sambung ulang dengan `rooms` yang berbeda.
+
+Begitu tersambung, server mengirim satu bingkai pembuka:
+
+```json
+{ "event": "hello", "data": { "penggunaId": "...", "peran": "WARGA", "rooms": ["meter:P001"] }, "ts": 1761868800000 }
+```
+
+Seluruh bingkai berikutnya memakai bentuk yang sama — `{ event, data, ts }`:
+
+| `event` | Kamar | Isi |
+| --- | --- | --- |
+| `meter:status` | `meter:<id>` | Debit, saldo, status daring |
+| `meter:saldo` | `meter:<id>` | Saldo berubah (token ditukar, air terpakai) |
+| `meter:relay` | `meter:<id>` | Saklar/valve terbuka atau tertutup |
+| `dashboard` | `admin:dashboard` | Ringkasan operasional untuk konsol petugas |
+
+**Hak akses kamar ditegakkan saat upgrade**, bukan saat kirim:
+
+- `meter:<id>` — warga hanya untuk meter miliknya; petugas untuk meter mana pun.
+- `admin:<apa pun>` — hanya peran non-WARGA.
+- Prefix lain **diabaikan** (default tolak), maksimal 20 kamar per koneksi.
+
+Heartbeat `ping` dari server tiap 30 detik; klien yang tidak membalas `pong`
+diputus.
+
+---
+
+## 🗃️ Model Data (17 entitas)
+
+Didefinisikan di `prisma/schema.prisma`. Tiap kolom yang keputusannya tidak
+jelas punya komentar `///` di berkas itu — baca di sana sebelum mengubah
+bentuknya.
+
+| Kelompok | Model | Peran |
+| --- | --- | --- |
+| **Identitas** | `Pengguna` | Akun warga dan petugas, peran lewat enum `Peran` |
+| | `Sesi` | Refresh token (disimpan sebagai hash, bukan nilai asli) |
+| | `KodeEmail` | Kode verifikasi & masuk perangkat baru, berbatas percobaan |
+| **Jaringan** | `Zona` | Wilayah distribusi + batas GeoJSON |
+| | `NeracaHarian` | Bacaan meter induk vs meter pelanggan, per zona per hari |
+| | `Meter` | Meter air pelanggan: saldo, relay, firmware, RSSI |
+| | `RiwayatMeter` | Jejak perubahan kepemilikan dan konfigurasi meter |
+| | `EmberPemakaian` | Telemetri pemakaian per jam |
+| **Komersial** | `Golongan` | Golongan tarif (Rp per liter) |
+| | `Token` | Token air 10 digit: status, sumber, pemakaian sekali |
+| | `Transaksi` | Invoice pembelian beserta status pelunasan |
+| **Layanan** | `Tiket` | Pengaduan warga, nomor `LP-YYYY-MM-XXXX`, tenggat SLA |
+| | `Insiden` | Anomali jaringan (kebocoran, gangguan) |
+| **Operasional** | `Notifikasi` | Kotak masuk pengguna |
+| | `Broadcast` | Siaran pengumuman |
+| | `AuditLog` | Jejak rekam tindakan petugas |
+| | `Pengaturan` | Konfigurasi tarif dan sistem |
+
+---
+
+## 🔐 Keamanan: yang benar-benar ditegakkan
+
+Bagian ini mencatat apa yang **diuji**, bukan niat baik.
+
+**Kata sandi dan sesi.** Argon2id untuk kata sandi. Access token 15 menit;
+refresh token 30 hari, **disimpan sebagai hash** sehingga bocornya basis data
+tidak langsung berarti sesi bisa dibajak. Rotasi di tiap `/refresh`.
+
+**Pembatasan percobaan.** Kode email dan penukaran token punya batas percobaan
+(`MAKS_PERCOBAAN_KODE = 5`) di samping rate limit per-IP. Rate limit saja
+tidak cukup: penyerang dengan banyak alamat IP tetap bisa menebak kode enam
+digit sampai tembus kalau kodenya sendiri tidak pernah terkunci.
+
+**Webhook pembayaran.** Tanda tangan HMAC-SHA256 **wajib** — permintaan tanpa
+tanda tangan ditolak. Bentuk tanda tangan diperiksa (`/^[0-9a-f]{64}$/i`)
+sebelum `timingSafeEqual`, karena `timingSafeEqual` melempar kalau panjang
+kedua penyangga berbeda, dan lemparan itu sendiri membocorkan informasi.
+
+**Kode tidak pernah masuk log.** `subjekAman()` menyamarkan deret empat angka
+atau lebih sebelum subjek email ditulis ke log server. Kode verifikasi yang
+tercatat di log adalah kode yang bisa dibaca siapa pun yang punya akses log.
+
+**Kepemilikan diperiksa di satu tempat.** Seluruh rute meter melewati
+`pastikanAksesMeter()`. Warga hanya bisa menyentuh meter miliknya sendiri;
+petugas boleh melihat semuanya.
+
+**Kamar WebSocket default TOLAK.** Prefix yang tidak dikenal diabaikan, bukan
+diterima. Versi sebelumnya menerima apa pun yang bukan `meter:`/`admin:`,
+artinya prefix baru yang ditambahkan nanti otomatis terbuka untuk warga tanpa
+ada yang menyadarinya — dan nama kamar sembarang dari query string bisa
+membuat peta kamar tumbuh sesuai kemauan penyerang. Jumlah kamar dibatasi 20.
+
+**Endpoint publik tanpa PII.** Tidak ada nama, alamat, kontak, nomor
+sambungan, atau koordinat rumah di `/api/publik/*` mana pun — termasuk di
+`/peta`, yang hanya mengirim poligon zona.
 
 ---
 
@@ -388,6 +519,23 @@ Format kesalahan validasi masukan (Zod):
 
 ---
 
+### Katalog kode galat
+
+Kode bersifat stabil dan boleh dicocokkan di frontend; `message` bisa berubah
+kapan saja dan **tidak boleh** dipakai sebagai penanda logika.
+
+| Kelompok | Kode |
+| --- | --- |
+| **Umum** | `VALIDASI_GAGAL` · `NOT_FOUND` · `FORBIDDEN` · `CONFLICT` · `RATE_LIMIT` · `TERLALU_SERING` · `INTERNAL` |
+| **Sesi** | `KREDENSIAL_SALAH` · `SESI_HABIS` · `SESI_DICABUT` · `SESI_TIDAK_VALID` · `AKUN_NONAKTIF` · `EMAIL_TERDAFTAR` · `EMAIL_BELUM_VERIFIKASI` · `PENGGUNA_TIDAK_DITEMUKAN` |
+| **Kode email** | `KODE_SALAH` · `KODE_KEDALUWARSA` · `KODE_SUDAH_DIPAKAI` · `KODE_TERKUNCI` · `KODE_TIDAK_DITEMUKAN` · `PERCOBAAN_TERKUNCI` |
+| **Meter** | `BUKAN_PEMILIK_METER` · `METER_SUDAH_TERHUBUNG` · `METER_TIDAK_COCOK` · `SALDO_HABIS` · `SAKLAR_OFF` |
+| **Token air** | `TOKEN_INVALID` · `TOKEN_SUDAH_DIPAKAI` · `TOKEN_KEDALUWARSA` · `TOKEN_DIBATALKAN` · `TOKEN_TIDAK_ADA` |
+| **Pembayaran** | `SIGNATURE_WAJIB` · `SIGNATURE_INVALID` · `INVOICE_WAJIB` · `BUKAN_PEMILIK_TRANSAKSI` · `BUKAN_PEMILIK_TAGIHAN` |
+| **Unduhan publik** | `SET_TIDAK_DIKENAL` · `FORMAT_TIDAK_DIDUKUNG` |
+
+---
+
 ## 📁 Struktur Direktori
 
 ```text
@@ -396,7 +544,7 @@ MIA-Jernih-Backend/
 │   └── deploy.yml
 ├── prisma/
 │   ├── migrations/             # Berkas migrasi database PostgreSQL
-│   ├── schema.prisma           # Skema 16 model entitas relasional
+│   ├── schema.prisma           # Skema 17 model entitas relasional
 │   ├── neraca-demo.ts          # Pembangkit bacaan meter induk (dipakai seed DAN isi-neraca)
 │   ├── isi-neraca.ts           # Mengisi NeracaHarian di server TANPA menghapus data lain
 │   └── seed.ts                 # Script seeding data realistis (120 meter & akun)
@@ -426,6 +574,48 @@ MIA-Jernih-Backend/
 ├── package.json
 └── tsconfig.json
 ```
+
+---
+
+## 🩺 Pemecahan Masalah
+
+Gejala-gejala di bawah ini pernah benar-benar terjadi di proyek ini, lengkap
+dengan sebab yang tidak kelihatan dari pesan galatnya.
+
+**Seluruh tes gagal dengan `DatabaseDoesNotExist`.**
+Basis data pengujian di porta 5435 belum jalan. Itu kegagalan lingkungan,
+bukan kode — jalankan langkah 1 di bagian pengujian lebih dulu.
+
+**Halaman frontend menampilkan rangka pemuatan selamanya, tanpa pesan galat.**
+Hampir selalu CORS. Asal yang dipakai peramban tidak ada di `CORS_ORIGIN`.
+Perhatikan bahwa `http://localhost:3000` dan `http://127.0.0.1:3000` adalah
+**asal yang berbeda**, dan pengalihan apex → `www` **mengubah** header
+`Origin` yang sampai ke sini. Periksa dengan:
+```bash
+curl -s -D- -o /dev/null -H "Origin: http://localhost:3000" \
+  http://localhost:4000/api/publik/statistik | grep -i access-control
+```
+Tidak ada baris `Access-Control-Allow-Origin` berarti asalnya ditolak.
+
+**Kehilangan air terbaca 0%, bukan "—".**
+Tabel `NeracaHarian` kosong. Jalankan `node dist/prisma/isi-neraca.js` (di
+server) atau `npm run db:seed` (lokal). Nol yang salah lebih merusak daripada
+"—" yang jujur, karena ia terbaca seperti klaim.
+
+**Penyebaran hijau tetapi perubahannya tidak terlihat di server.**
+Periksa apakah ada `docker compose exec -T` tanpa `< /dev/null` di
+`deploy.yml`. Exec mewarisi stdin ssh dan menelan sisa skripnya; baris
+sesudahnya tidak pernah dijalankan dan **tidak ada yang gagal**.
+
+**Webhook pembayaran membalas 400 untuk permintaan yang kelihatannya benar.**
+`PAYMENT_WEBHOOK_SECRET` kosong. Itu perilaku yang disengaja, bukan bug.
+
+**Email tidak terkirim saat pengembangan.**
+`MAIL_ENABLED=false` adalah bawaannya. Kode verifikasi tetap dibuat dan
+tersimpan di tabel `KodeEmail`; ambil dari sana, atau nyalakan SMTP.
+
+**Prisma mengeluh klien tidak cocok dengan skema.**
+Jalankan `npm run db:generate` setelah setiap perubahan `schema.prisma`.
 
 ---
 
