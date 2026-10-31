@@ -64,7 +64,15 @@ function pilih<T>(xs: readonly T[]): T {
 }
 const bulat = (x: number, d = 2) => Math.round(x * 10 ** d) / 10 ** d;
 
-const JUMLAH_PELANGGAN = 120; // cukup kaya untuk demo, cukup cepat untuk di-seed ulang
+/*
+ * 420 sambungan, naik dari 120.
+ *
+ * Pada 120 sambungan yang tersebar di empat zona seluas Bandung Raya, peta
+ * jaringan terbaca hampir kosong: titiknya terlalu jarang untuk
+ * memperlihatkan pola sebaran, dan tabel pelanggan habis dalam lima halaman.
+ * Angka ini masih cukup kecil untuk di-seed ulang dalam hitungan detik.
+ */
+const JUMLAH_PELANGGAN = 420;
 /**
  * Meter terpasang yang sengaja BELUM diklaim siapa pun.
  *
