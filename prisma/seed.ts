@@ -19,6 +19,7 @@
  */
 import { PrismaPg } from "@prisma/adapter-pg";
 import { HARI_NERACA, barisNeraca } from "./neraca-demo.js";
+import { TARGET_TIKET, barisTiket } from "./tiket-demo.js";
 import {
   PrismaClient,
   Peran,
@@ -154,15 +155,6 @@ const DEPAN = [
 const BELAKANG = [
   "Suryana", "Sukmana", "Wijaya", "Wiranata", "Pratama", "Atmaja", "Saputra", "Maulana",
   "Suwandi", "Setiawan", "Kurniawan", "Permana", "Hidayat", "Gunawan", "Sulistyo",
-] as const;
-
-const KATEGORI_TIKET = [
-  ["kebocoran pipa", 6],
-  ["air tidak mengalir", 12],
-  ["air keruh/berbau", 24],
-  ["tekanan lemah", 24],
-  ["meter/keypad rusak", 48],
-  ["lainnya", 72],
 ] as const;
 
 /**
@@ -507,84 +499,17 @@ export async function jalankanSeed() {
   await prisma.transaksi.createMany({ data: transaksiList });
   console.log(`token: ${tokenList.length}   transaksi: ${transaksiList.length}`);
 
-  /* ── 8. Tiket dengan Ketepatan SLA yang Membaik dari Waktu ke Waktu ──── */
+  /* ── 8. Tiket Pengaduan ─────────────────────────────────────────────── */
   /*
-   * 320 tiket tersebar 100 hari, bukan 60 tiket dalam 25 hari.
-   *
-   * Dua alasan. Pertama, halaman Rapor Kinerja melayani rentang 7, 30, dan 90
-   * hari; dengan sebaran 25 hari, rentang 90 hari berisi 65 hari kosong dan
-   * grafiknya putus-putus. Kedua, ember harian pada rentang 7 hari butuh
-   * cukup tiket per hari agar persentasenya tidak melonjak liar antara 0%
-   * dan 100% hanya karena satu tiket.
-   *
-   * Ketepatannya MEMBAIK seiring waktu, dari sekitar 78% menjadi 93%.
-   * Ketepatan acak menghasilkan garis bergerigi tanpa arah, dan grafik yang
-   * tidak punya arah tidak menjawab pertanyaan yang dibawa pembaca ke
-   * halaman itu: apakah layanannya membaik atau memburuk.
+   * Rumusnya tinggal di `./tiket-demo.ts` supaya `prisma/isi-tiket.ts` —
+   * yang menambah tiket di server tanpa menghapus apa pun — memakai sebaran
+   * dan pola ketepatan yang sama persis.
    */
-  const JUMLAH_TIKET = 320;
-  const HARI_TIKET = 100;
-
-  /** Nomor urut per bulan, supaya penomorannya tidak bertabrakan. */
-  const urutBulan = new Map<string, number>();
-
-  const tiketList = Array.from({ length: JUMLAH_TIKET }, () => {
-    const [kategori, slaJam] = pilih(KATEGORI_TIKET);
-    const m = pilih(contoh);
-    const umurHari = r() * HARI_TIKET;
-    const dibuat = new Date(kini - umurHari * 24 * JAM);
-    const jatuhTempo = new Date(dibuat.getTime() + (slaJam as number) * JAM);
-
-    // Peluang telat menyusut dari ~22% (100 hari lalu) menjadi ~7% (kini).
-    const peluangTelat = 0.07 + (umurHari / HARI_TIKET) * 0.15;
-
-    const selesai = r() > 0.1;
-    const telat = r() < peluangTelat;
-    const durasiSelesaiJam = telat
-      ? (slaJam as number) * (1.1 + r() * 0.8)
-      : (slaJam as number) * (0.25 + r() * 0.6);
-    const selesaiPada = selesai ? new Date(dibuat.getTime() + durasiSelesaiJam * JAM) : null;
-
-    const status = selesai
-      ? StatusTiket.SELESAI
-      : pilih([StatusTiket.BARU, StatusTiket.DIPROSES]);
-
-    /*
-     * Waktu tanggap: 15–180 menit setelah laporan masuk, dan HANYA untuk
-     * tiket yang memang sudah keluar dari BARU. Tiket yang masih BARU belum
-     * ditanggapi siapa pun, jadi kolomnya null — itu yang membuat rata-rata
-     * di halaman publik tidak tercemar tiket yang belum disentuh.
-     */
-    const ditanggapiPada =
-      status === StatusTiket.BARU
-        ? null
-        : new Date(dibuat.getTime() + (15 + Math.floor(r() * 165)) * 60_000);
-
-    /*
-     * Nomor diturunkan dari TANGGAL TIKETNYA, bukan dipatok ke satu bulan.
-     *
-     * Versi sebelumnya menulis `LP-2026-10-` untuk seluruh tiket, sehingga
-     * tiket bertanggal September tetap bernomor Oktober. Orang pertama yang
-     * mencocokkan nomor dengan tanggal di halaman lacak akan menemukannya.
-     */
-    const kunciBulan = `${dibuat.getFullYear()}-${String(dibuat.getMonth() + 1).padStart(2, "0")}`;
-    const urut = (urutBulan.get(kunciBulan) ?? 0) + 1;
-    urutBulan.set(kunciBulan, urut);
-
-    return {
-      nomor: `LP-${kunciBulan}-${String(urut).padStart(4, "0")}`,
-      pelaporId: m.penggunaId,
-      meterId: m.id,
-      kategori: kategori as string,
-      deskripsi: `Laporan warga perihal ${kategori.toLowerCase()} pada saluran air.`,
-      fotoUrl: [],
-      status,
-      teknisiId: selesai || r() > 0.5 ? teknisiUser1.id : null,
-      slaJatuhTempo: jatuhTempo,
-      ditanggapiPada,
-      selesaiPada,
-      dibuatPada: dibuat,
-    };
+  const tiketList = barisTiket({
+    meter: contoh.map((m) => ({ id: m.id, penggunaId: m.penggunaId })),
+    teknisiId: teknisiUser1.id,
+    jumlah: TARGET_TIKET,
+    acak: r,
   });
 
   await prisma.tiket.createMany({ data: tiketList });

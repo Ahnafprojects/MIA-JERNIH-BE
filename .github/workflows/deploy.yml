@@ -67,4 +67,8 @@ jobs:
           # `node dist/...`, bukan `npx tsx`: image produksi menjalankan
           # `npm prune --omit=dev`, jadi tsx tidak ada di sana.
           docker compose exec -T app sh -c "node dist/prisma/isi-neraca.js" < /dev/null
+          # Menambah tiket pengaduan sampai jumlahnya cukup mengisi rentang 90
+          # hari di Rapor Kinerja. Tidak menghapus apa pun, dan berhenti tanpa
+          # menulis begitu jumlahnya sudah mencapai target.
+          docker compose exec -T app sh -c "node dist/prisma/isi-tiket.js" < /dev/null
           REMOTE
