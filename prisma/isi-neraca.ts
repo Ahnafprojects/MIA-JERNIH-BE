@@ -22,11 +22,56 @@ const prisma = new PrismaClient({
   adapter: new PrismaPg({ connectionString: process.env.DATABASE_URL! }),
 });
 
+/**
+ * Apakah isi tabel masih sepadan dengan jumlah sambungan sekarang.
+ *
+ * Volume produksi diturunkan dari jumlah sambungan. Begitu sambungannya
+ * bertambah banyak — misalnya 120 menjadi 420 — tabel lama menjadi terlalu
+ * kecil, dan halaman statistik melaporkan pemakaian per orang yang anjlok
+ * sampai di bawah kebutuhan pokok. Angkanya bukan salah hitung, melainkan
+ * dua sumber yang tidak lagi sepadan.
+ *
+ * Isi tabel ini murni data peragaan, jadi menyusunnya ulang tidak menghapus
+ * apa pun yang berharga. Ambangnya longgar (selisih di atas 40%) supaya
+ * penambahan kecil tidak memicu penulisan ulang setiap kali deploy.
+ */
+async function masihSepadan(jumlahSambungan: number): Promise<boolean> {
+  const terbaru = await prisma.neracaHarian.groupBy({
+    by: ["tanggal"],
+    _sum: { volumeIndukL: true },
+    orderBy: { tanggal: "desc" },
+    take: 1,
+  });
+  const indukL = terbaru[0]?._sum.volumeIndukL?.toNumber() ?? 0;
+  if (indukL <= 0) return false;
+
+  /*
+   * Rumus yang sama dengan `neraca-demo.ts`, dalam LITER.
+   *
+   * `produksiDasarM3` di sana membagi hasil kalinya dengan 1000 untuk
+   * mendapat meter kubik. Kolom yang disimpan satuannya liter, jadi
+   * pembagian itu tidak diulang di sini. Versi pertama tetap mengalikan
+   * 1000, sehingga harapannya seribu kali terlalu besar dan tabelnya
+   * disusun ulang pada setiap deploy.
+   */
+  const harapanL = (jumlahSambungan * 3.9 * 158) / (1 - 0.21);
+  const selisih = Math.abs(indukL - harapanL) / harapanL;
+  return selisih <= 0.4;
+}
+
 async function utama(): Promise<void> {
+  const jumlahSambungan = await prisma.meter.count();
+
   const sudahAda = await prisma.neracaHarian.count();
   if (sudahAda > 0) {
-    console.log(`NeracaHarian sudah berisi ${sudahAda} baris — tidak diubah.`);
-    return;
+    if (await masihSepadan(jumlahSambungan)) {
+      console.log(`NeracaHarian sudah berisi ${sudahAda} baris — tidak diubah.`);
+      return;
+    }
+    console.log(
+      `NeracaHarian tidak lagi sepadan dengan ${jumlahSambungan} sambungan — disusun ulang.`,
+    );
+    await prisma.neracaHarian.deleteMany();
   }
 
   const zona = await prisma.zona.findMany({ select: { id: true, nama: true } });
@@ -57,7 +102,6 @@ async function utama(): Promise<void> {
     return;
   }
 
-  const jumlahSambungan = await prisma.meter.count();
   if (jumlahSambungan === 0) {
     console.log("Belum ada meter — produksi tidak bisa diskalakan.");
     return;
