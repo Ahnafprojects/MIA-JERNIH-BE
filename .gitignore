@@ -7,7 +7,6 @@ dist/
 
 # Panduan lokal untuk perkakas, tidak ikut dipublikasikan.
 AGENTS.md
-CLAUDE.md
 .cursorrules
 PRD.md
 workspace/
