@@ -59,6 +59,14 @@ jobs:
           # melihat galat, job-nya hijau, dan satu-satunya tanda adalah tabel
           # yang tetap kosong di produksi.
           docker compose exec -T app sh -c "npx prisma migrate deploy" < /dev/null
+          # Menambah tiket pengaduan sampai jumlahnya cukup mengisi rentang 90
+          # hari di Rapor Kinerja. Tidak menghapus apa pun, dan berhenti tanpa
+          # menulis begitu jumlahnya sudah mencapai target.
+          docker compose exec -T app sh -c "node dist/prisma/isi-tiket.js" < /dev/null
+          # Sambungan ditambah LEBIH DULU: volume neraca air diturunkan dari
+          # jumlah sambungan, jadi urutan terbalik membuat neracanya disusun
+          # menurut jumlah lama lalu langsung tidak sepadan.
+          docker compose exec -T app sh -c "node dist/prisma/isi-pelanggan.js" < /dev/null
           # Mengisi tabel yang baru dibuat migrasi, kalau masih kosong.
           # Migrasi membuat `NeracaHarian`, tetapi tabel kosong membuat
           # /statistik melaporkan kehilangan air 0% — dan 0% yang salah lebih
@@ -67,8 +75,4 @@ jobs:
           # `node dist/...`, bukan `npx tsx`: image produksi menjalankan
           # `npm prune --omit=dev`, jadi tsx tidak ada di sana.
           docker compose exec -T app sh -c "node dist/prisma/isi-neraca.js" < /dev/null
-          # Menambah tiket pengaduan sampai jumlahnya cukup mengisi rentang 90
-          # hari di Rapor Kinerja. Tidak menghapus apa pun, dan berhenti tanpa
-          # menulis begitu jumlahnya sudah mencapai target.
-          docker compose exec -T app sh -c "node dist/prisma/isi-tiket.js" < /dev/null
           REMOTE

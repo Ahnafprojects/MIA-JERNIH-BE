@@ -13,6 +13,7 @@ import { prisma } from "../lib/prisma.js";
 import { notFound } from "../lib/errors.js";
 import { wajibMasuk, wajibPeran } from "../middleware/sesi.js";
 import { emailBroadcast, kirimEmail } from "../lib/email.js";
+import { deretHarian, perZonaNeraca, ringkasNeraca } from "../lib/neraca.js";
 
 export const konsolRouter: Router = Router();
 
@@ -28,86 +29,169 @@ konsolRouter.use(wajibPeran(Peran.OPERATOR, Peran.SUPERVISOR, Peran.TEKNISI));
 
 konsolRouter.get("/dashboard", async (_req: Request, res: Response, next: NextFunction) => {
   try {
+    /*
+     * DUA ANGKA DI SINI DULU KONSTANTA.
+     *
+     * `volumeHariIniM3 = 142.5` dan `nrwRataPct = 14.8` ditulis langsung di
+     * kode dan disajikan sebagai pantauan jaringan. Keduanya tidak pernah
+     * berubah apa pun yang terjadi di lapangan, dan pada portal yang seluruh
+     * gagasannya transparansi, angka karangan adalah cacat yang paling mahal.
+     * Sekarang keduanya dihitung dari `NeracaHarian` lewat `lib/neraca.ts`,
+     * sumber yang sama dengan halaman publik, sehingga konsol dan halaman
+     * warga tidak mungkin menyebut angka berbeda.
+     *
+     * Delapan medan lain yang dibaca halaman juga tidak pernah dikirim:
+     * `jumlahStatus`, `meterBerbunyi`, `totalMeterBerbunyi`, `insiden`,
+     * `grafik`, `nrwPerZona`, `pelangganLive`, dan `tokenHariIniDetail`.
+     * Akibatnya lima kartu menampilkan "Tidak dikirim server", dan tiga panel
+     * di bawahnya menampilkan keadaan kosong padahal datanya ada.
+     */
+    const awalHariIni = new Date(new Date().setHours(0, 0, 0, 0));
+
     const [
-      totalPelanggan,
-      totalMeter,
-      meterOnline,
-      meterOffline,
-      saldoKritisCount,
-      relayTertutupCount,
-      insidenBaruCount,
+      pelangganAktif,
+      pelangganNonaktif,
+      semuaMeter,
       semuaZona,
-      insidenTerbaru,
-      tokenHariIniCount,
+      insidenTerbuka,
+      tokenHariIni,
+      ringkas,
+      deret,
+      perZona,
     ] = await Promise.all([
-      prisma.pengguna.count({ where: { peran: Peran.WARGA } }),
-      prisma.meter.count(),
-      prisma.meter.count({ where: { daring: true } }),
-      prisma.meter.count({ where: { daring: false } }),
-      prisma.meter.count({ where: { saldoL: { lte: 2 } } }), // Ambang kritis firmware <= 2 L
-      prisma.meter.count({ where: { relay: StatusRelay.NONAKTIF } }),
-      prisma.insiden.count({ where: { status: StatusInsiden.BARU } }),
+      prisma.pengguna.count({ where: { peran: Peran.WARGA, aktif: true } }),
+      prisma.pengguna.count({ where: { peran: Peran.WARGA, aktif: false } }),
+      prisma.meter.findMany({
+        include: {
+          zona: { select: { id: true, nama: true } },
+          pengguna: { select: { nama: true } },
+          insiden: {
+            where: { status: { in: [StatusInsiden.BARU, StatusInsiden.DITUGASKAN] } },
+            select: { id: true },
+          },
+        },
+      }),
       prisma.zona.findMany({
         select: { id: true, nama: true, _count: { select: { meter: true } } },
       }),
       prisma.insiden.findMany({
+        where: { status: { in: [StatusInsiden.BARU, StatusInsiden.DITUGASKAN] } },
         orderBy: { dibukaPada: "desc" },
-        take: 5,
-        include: { meter: { select: { id: true, serial: true } } },
+        take: 8,
+        include: { meter: { select: { serial: true, zona: { select: { nama: true } } } } },
       }),
-      prisma.token.count({
-        where: { dibuatPada: { gte: new Date(new Date().setHours(0, 0, 0, 0)) } },
+      prisma.token.findMany({
+        where: { dibuatPada: { gte: awalHariIni } },
+        include: { meter: { select: { zona: { select: { nama: true } } } } },
       }),
+      ringkasNeraca(30),
+      deretHarian(30),
+      perZonaNeraca(30),
     ]);
 
-    const volumeHariIniM3 = 142.5;
-    const nrwRataPct = 14.8;
+    type StatusMeter = "normal" | "alarm" | "insiden" | "offline";
+    const jumlahStatus: Record<StatusMeter, number> = {
+      normal: 0,
+      alarm: 0,
+      insiden: 0,
+      offline: 0,
+    };
+
+    const meterBerbunyi: Array<{ id: string; nama: string; zona: string; saldoL: number }> = [];
+    const pelangganLive: Array<{
+      id: string;
+      nama: string;
+      zona: string;
+      saldoL: number;
+      debitLpm: number;
+      saklarOn: boolean;
+      relayOn: boolean;
+    }> = [];
+
+    let saldoBeredarL = 0;
+
+    for (const m of semuaMeter) {
+      const saldoL = Number(m.saldoL);
+      const debitLpm = Number(m.debitLpm);
+      const relayOn = m.relay === StatusRelay.AKTIF;
+      const nama = m.pengguna?.nama ?? m.label ?? m.serial;
+      const zona = m.zona?.nama ?? "";
+
+      saldoBeredarL += saldoL;
+
+      // Urutan prioritas sama dengan peta dan daftar pelanggan.
+      const status: StatusMeter =
+        m.insiden.length > 0
+          ? "insiden"
+          : !m.daring
+            ? "offline"
+            : saldoL <= Number(m.ambangPeringatanL)
+              ? "alarm"
+              : "normal";
+      jumlahStatus[status] += 1;
+
+      // Ambang 5 L adalah alarm firmware, bukan pilihan tampilan.
+      if (saldoL <= 5) meterBerbunyi.push({ id: m.id, nama, zona, saldoL });
+      if (debitLpm > 0) {
+        pelangganLive.push({ id: m.id, nama, zona, saldoL, debitLpm, saklarOn: relayOn, relayOn });
+      }
+    }
+
+    meterBerbunyi.sort((a, b) => a.saldoL - b.saldoL);
+    pelangganLive.sort((a, b) => b.debitLpm - a.debitLpm);
+
+    const tokenPerZona = new Map<string, number>();
+    for (const t of tokenHariIni) {
+      const z = t.meter?.zona?.nama ?? "Tanpa zona";
+      tokenPerZona.set(z, (tokenPerZona.get(z) ?? 0) + 1);
+    }
+
+    const volumeHariIniM3 = deret[deret.length - 1]?.disalurkanM3 ?? 0;
 
     const kpi = [
-      { key: "pelangganTerhubung", label: "Pelanggan Terhubung", value: totalPelanggan },
-      { key: "meterTotal", label: "Total Meter Air", value: totalMeter },
-      { key: "meterOnline", label: "Meter Online", value: meterOnline, tone: "positive" as const },
-      { key: "meterOffline", label: "Meter Offline", value: meterOffline, tone: "warning" as const },
+      { key: "pelangganAktif", label: "Pelanggan Aktif", value: pelangganAktif },
+      { key: "pelangganNonaktif", label: "Pelanggan Nonaktif", value: pelangganNonaktif },
+      { key: "pelangganTerhubung", label: "Pelanggan Terhubung", value: pelangganAktif + pelangganNonaktif },
+      { key: "meterTotal", label: "Total Meter Air", value: semuaMeter.length },
+      { key: "meterOnline", label: "Meter Online", value: semuaMeter.filter((m) => m.daring).length, tone: "positive" as const },
+      { key: "meterOffline", label: "Meter Offline", value: jumlahStatus.offline, tone: "warning" as const },
       { key: "volumeHariIniM3", label: "Volume Hari Ini", value: volumeHariIniM3, unit: "m³" },
-      { key: "saldoKritis", label: "Meter Saldo Kritis", value: saldoKritisCount, tone: "warning" as const },
-      { key: "relayTertutup", label: "Relay Tertutup", value: relayTertutupCount },
-      { key: "insidenBaru", label: "Insiden Baru", value: insidenBaruCount, tone: "warning" as const },
-      { key: "nrwRataPct", label: "Rata-rata NRW", value: nrwRataPct, unit: "%" },
+      { key: "saldoBeredarL", label: "Saldo Beredar", value: Math.round(saldoBeredarL), unit: "L" },
+      { key: "saldoKritis", label: "Meter Saldo Kritis", value: semuaMeter.filter((m) => Number(m.saldoL) <= 2).length, tone: "warning" as const },
+      { key: "relayTertutup", label: "Relay Tertutup", value: semuaMeter.filter((m) => m.relay !== StatusRelay.AKTIF).length },
+      { key: "insidenBaru", label: "Insiden Aktif", value: insidenTerbuka.length, tone: "warning" as const },
+      { key: "nrwRataPct", label: "Rata-rata NRW", value: ringkas.nrwPct, unit: "%" },
     ];
-
-    const pelangganSample = await prisma.pengguna.findMany({
-      where: { peran: Peran.WARGA },
-      take: 6,
-      orderBy: { dibuatPada: "desc" },
-      select: { id: true, nama: true, email: true, hp: true, dibuatPada: true },
-    });
 
     res.status(200).json({
       kpi,
-      pelanggan: pelangganSample,
-      zona: semuaZona.map((z) => ({
-        id: z.id,
-        nama: z.nama,
-        totalMeter: z._count.meter,
-      })),
-      insidenTerbaru: insidenTerbaru.map((i) => ({
+      jumlahStatus,
+      meterBerbunyi: meterBerbunyi.slice(0, 8),
+      totalMeterBerbunyi: meterBerbunyi.length,
+      insiden: insidenTerbuka.map((i) => ({
         id: i.id,
-        tipe: i.tipe,
-        keparahan: i.keparahan,
-        judul: i.judul,
-        meterId: i.meterId,
-        status: i.status,
-        dibukaPada: i.dibukaPada.toISOString(),
+        nama: i.judul,
+        zona: i.meter?.zona?.nama ?? "",
+        sejak: i.dibukaPada.toISOString(),
       })),
-      tokenHariIni: tokenHariIniCount,
+      grafik: {
+        labels: deret.map((d) => d.tanggal),
+        series: [
+          { name: "Air disalurkan", unit: "m³", points: deret.map((d) => d.disalurkanM3) },
+          { name: "Air tercatat", unit: "m³", points: deret.map((d) => d.tercatatM3) },
+        ],
+      },
+      nrwPerZona: perZona.map((z) => ({ nama: z.nama, nrwPct: z.nrwPct })),
+      pelangganLive: pelangganLive.slice(0, 12),
+      tokenHariIni: tokenHariIni.length,
+      tokenHariIniDetail: [...tokenPerZona.entries()].map(([zona, jumlah]) => ({ zona, jumlah })),
+      zona: semuaZona.map((z) => ({ id: z.id, nama: z.nama, totalMeter: z._count.meter })),
       ts: new Date().toISOString(),
     });
   } catch (err) {
     next(err);
   }
 });
-
-/* ── 2. GET /api/admin/pelanggan?filter=&zona=&q=&page= ──────────────── */
 
 konsolRouter.get("/pelanggan", async (req: Request, res: Response, next: NextFunction) => {
   try {
@@ -162,7 +246,7 @@ konsolRouter.get("/pelanggan", async (req: Request, res: Response, next: NextFun
       const adaInsiden = m.insiden.length > 0;
       const online = m.daring;
       const saldoL = Number(m.saldoL);
-      const relayOn = m.relay === "AKTIF";
+      const relayOn = m.relay === StatusRelay.AKTIF;
 
       // Urutan prioritas ditentukan di satu tempat. Dua rumus yang "kira-kira
       // sama" adalah persis cara angka legenda mulai berselisih dengan isi
