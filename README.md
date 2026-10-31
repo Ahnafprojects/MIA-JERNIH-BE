@@ -35,8 +35,10 @@ Tiga sub-tema yang dipilih, beserta bagian yang mewujudkannya:
 11. [WebSocket](#websocket)
 12. [Format jawaban galat](#format-jawaban-galat)
 13. [Penyebaran](#penyebaran)
-14. [Pemecahan masalah](#pemecahan-masalah)
-15. [Struktur direktori](#struktur-direktori)
+14. [Struktur direktori](#struktur-direktori)
+
+Pemecahan masalah saat pengembangan ada di
+[`docs/CATATAN-TEKNIS.md`](docs/CATATAN-TEKNIS.md).
 
 ## Apa yang dikerjakan sistem ini
 
@@ -464,29 +466,6 @@ Tiga detail yang mahal dipelajari.
 
 **`isi-neraca.ts`, bukan `seed.ts`.** Seed mengosongkan seluruh tabel terlebih dahulu dan akan menghapus akun, tiket, serta transaksi yang sudah ada. Skrip pengisi hanya menulis kalau `NeracaHarian` masih kosong, dan berhenti tanpa menyentuh apa pun kalau sudah terisi.
 
-## Pemecahan masalah
-
-**Seluruh tes gagal dengan `DatabaseDoesNotExist`.** Basis data pengujian di porta 5435 belum berjalan. Jalankan langkah pertama pada bagian [Pengujian](#pengujian).
-
-**Halaman frontend menampilkan rangka pemuatan terus-menerus tanpa pesan galat.** Hampir selalu CORS. Asal yang dipakai peramban tidak terdaftar di `CORS_ORIGIN`. Perhatikan bahwa `http://localhost:3000` dan `http://127.0.0.1:3000` adalah asal yang berbeda, dan pengalihan dari apex ke `www` mengubah header `Origin` yang sampai ke server. Periksa dengan:
-
-```bash
-curl -s -D- -o /dev/null -H "Origin: http://localhost:3000" \
-  http://localhost:4000/api/publik/statistik | grep -i access-control
-```
-
-Tidak adanya baris `Access-Control-Allow-Origin` berarti asal tersebut ditolak.
-
-**Kehilangan air terbaca 0% alih-alih tanda hubung.** Tabel `NeracaHarian` kosong. Jalankan `node dist/prisma/isi-neraca.js` di server, atau `npm run db:seed` di lokal.
-
-**Penyebaran hijau tetapi perubahan tidak terlihat di server.** Periksa apakah ada `docker compose exec -T` tanpa `< /dev/null` di `deploy.yml`.
-
-**Webhook pembayaran membalas 400 untuk permintaan yang tampak benar.** `PAYMENT_WEBHOOK_SECRET` kosong. Perilaku ini disengaja.
-
-**Email tidak terkirim saat pengembangan.** `MAIL_ENABLED=false` adalah nilai bawaan. Kode verifikasi tetap dibuat dan tersimpan di tabel `KodeEmail`.
-
-**Prisma mengeluh klien tidak cocok dengan skema.** Jalankan `npm run db:generate` setelah setiap perubahan pada `schema.prisma`.
-
 ## Struktur direktori
 
 ```text
@@ -528,4 +507,4 @@ MIA-JERNIH-BE/
 
 ## Tim
 
-Dikembangkan untuk Web In Action — Multimedia In Action 2026 oleh Tim Jernih.
+**EZ WIN INI MAH** — Web In Action, Multimedia In Action 2026.
