@@ -111,64 +111,174 @@ konsolRouter.get("/dashboard", async (_req: Request, res: Response, next: NextFu
 
 konsolRouter.get("/pelanggan", async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const page = Math.max(1, Number(req.query.page) || 1);
-    const perPage = Math.max(1, Math.min(100, Number(req.query.perPage) || 20));
-    const zonaId = req.query.zona as string | undefined;
-    const q = req.query.q as string | undefined;
+    /*
+     * BARISNYA METER, BUKAN PENGGUNA.
+     *
+     * Endpoint ini sebelumnya mengembalikan daftar `Pengguna` dalam bentuk
+     * `{ rows, total, page, perPage }`, sedangkan halaman konsol membaca
+     * `{ baris, jumlahStatus, jumlahSaring, zona, halaman, perHalaman,
+     * halamanTerakhir }` dengan tiap baris berisi saldo, debit, status relay,
+     * dan koordinat — semuanya milik METER.
+     *
+     * Akibatnya `data.jumlahStatus` bernilai `undefined`, dan `jumlahStatus[s]`
+     * melempar saat render. Lemparan itu terjadi di dalam komponen, jadi yang
+     * hilang bukan satu pita angka melainkan SELURUH halaman: batas galat Next
+     * menggantinya dengan "This page couldn't load", dan daftar pelanggan tidak
+     * bisa dibuka sama sekali.
+     *
+     * Nama parameternya pun berbeda: halaman ini mengirim `halaman`, `per`,
+     * `urut`, `arah`, `cari`, `zona`, dan `saring`.
+     */
+    const halaman = Math.max(1, Number(req.query.halaman) || 1);
+    const perHalaman = Math.max(1, Math.min(100, Number(req.query.per) || 25));
+    const urut = typeof req.query.urut === "string" ? req.query.urut : "nama";
+    const arah = req.query.arah === "turun" ? "turun" : "naik";
+    const cari = typeof req.query.cari === "string" ? req.query.cari.trim() : "";
+    const zonaSaring = typeof req.query.zona === "string" ? req.query.zona : "";
+    const saring = typeof req.query.saring === "string" ? req.query.saring : "";
 
-    const where: {
-      peran: Peran;
-      zonaId?: string;
-      OR?: Array<{ nama?: { contains: string; mode?: "insensitive" }; email?: { contains: string; mode?: "insensitive" }; hp?: { contains: string } }>;
-    } = { peran: Peran.WARGA };
-
-    if (zonaId) where.zonaId = zonaId;
-    if (q) {
-      where.OR = [
-        { nama: { contains: q, mode: "insensitive" } },
-        { email: { contains: q, mode: "insensitive" } },
-        { hp: { contains: q } },
-      ];
-    }
-
-    const [total, rows] = await Promise.all([
-      prisma.pengguna.count({ where }),
-      prisma.pengguna.findMany({
-        where,
-        skip: (page - 1) * perPage,
-        take: perPage,
-        orderBy: { dibuatPada: "desc" },
-        include: {
-          zona: { select: { nama: true } },
-          golongan: { select: { nama: true } },
-          meter: { select: { id: true, serial: true, saldoL: true, relay: true } },
+    /*
+     * Seluruh meter bertuan diambil sekali, lalu disaring dan diurutkan di
+     * memori. Jaringan ini berisi 120 sambungan; menyusun tujuh kueri agregat
+     * terpisah untuk jumlah saring dan jumlah status akan lebih rumit tanpa
+     * memberi manfaat pada ukuran ini. Kalau jumlah sambungan tumbuh ke
+     * puluhan ribu, inilah bagian yang perlu dipindahkan ke SQL.
+     */
+    const semua = await prisma.meter.findMany({
+      where: { penggunaId: { not: null } },
+      include: {
+        zona: { select: { id: true, nama: true } },
+        pengguna: { select: { nama: true, email: true, aktif: true } },
+        insiden: {
+          where: { status: { in: [StatusInsiden.BARU, StatusInsiden.DITUGASKAN] } },
+          select: { id: true },
         },
-      }),
-    ]);
+      },
+    });
+
+    type StatusMeter = "normal" | "alarm" | "insiden" | "offline";
+
+    const baris = semua.map((m) => {
+      const adaInsiden = m.insiden.length > 0;
+      const online = m.daring;
+      const saldoL = Number(m.saldoL);
+      const relayOn = m.relay === "AKTIF";
+
+      // Urutan prioritas ditentukan di satu tempat. Dua rumus yang "kira-kira
+      // sama" adalah persis cara angka legenda mulai berselisih dengan isi
+      // tabelnya.
+      const status: StatusMeter = adaInsiden
+        ? "insiden"
+        : !online
+          ? "offline"
+          : saldoL <= Number(m.ambangPeringatanL)
+            ? "alarm"
+            : "normal";
+
+      return {
+        id: m.id,
+        nama: m.pengguna?.nama ?? m.label ?? m.serial,
+        email: m.pengguna?.email ?? "",
+        serial: m.serial,
+        zonaId: m.zonaId ?? "",
+        zona: m.zona?.nama ?? "",
+        saldoL,
+        debitLpm: Number(m.debitLpm),
+        saklarOn: relayOn,
+        relayOn,
+        online,
+        adaInsiden,
+        aktif: m.pengguna?.aktif ?? true,
+        koordinat: [m.lng ?? 0, m.lat ?? 0] as [number, number],
+        terakhirLapor: (m.terakhirTerlihat ?? m.dibuatPada).toISOString(),
+        status,
+      };
+    });
+
+    const cocokCari = (b: (typeof baris)[number]) =>
+      !cari ||
+      b.nama.toLowerCase().includes(cari.toLowerCase()) ||
+      b.serial.toLowerCase().includes(cari.toLowerCase()) ||
+      b.email.toLowerCase().includes(cari.toLowerCase());
+
+    const dasar = baris.filter(
+      (b) => cocokCari(b) && (!zonaSaring || b.zonaId === zonaSaring),
+    );
+
+    /*
+     * Jumlah saring dan jumlah status dihitung SEBELUM `saring` diterapkan.
+     *
+     * Keping penyaring harus memberi tahu berapa isi tiap pilihan; kalau
+     * dihitung sesudah penyaringan, seluruh keping selain yang sedang aktif
+     * akan menampilkan nol dan tidak ada yang tahu ada isinya.
+     */
+    const jumlahSaring = {
+      aktif: dasar.filter((b) => b.aktif).length,
+      nonaktif: dasar.filter((b) => !b.aktif).length,
+      "saldo-menipis": dasar.filter((b) => b.saldoL <= 5).length,
+      offline: dasar.filter((b) => !b.online).length,
+      insiden: dasar.filter((b) => b.adaInsiden).length,
+    };
+
+    const jumlahStatus: Record<StatusMeter, number> = {
+      normal: 0,
+      alarm: 0,
+      insiden: 0,
+      offline: 0,
+    };
+    for (const b of dasar) jumlahStatus[b.status] += 1;
+
+    const lolosSaring = (b: (typeof baris)[number]) => {
+      switch (saring) {
+        case "aktif":
+          return b.aktif;
+        case "nonaktif":
+          return !b.aktif;
+        case "saldo-menipis":
+          return b.saldoL <= 5;
+        case "offline":
+          return !b.online;
+        case "insiden":
+          return b.adaInsiden;
+        default:
+          return true;
+      }
+    };
+
+    const tersaring = dasar.filter(lolosSaring);
+
+    const arahAngka = arah === "turun" ? -1 : 1;
+    tersaring.sort((a, b) => {
+      switch (urut) {
+        case "saldo":
+          return (a.saldoL - b.saldoL) * arahAngka;
+        case "debit":
+          return (a.debitLpm - b.debitLpm) * arahAngka;
+        case "zona":
+          return a.zona.localeCompare(b.zona, "id") * arahAngka;
+        default:
+          return a.nama.localeCompare(b.nama, "id") * arahAngka;
+      }
+    });
+
+    const total = tersaring.length;
+    const halamanTerakhir = Math.max(1, Math.ceil(total / perHalaman));
+    const mulai = (halaman - 1) * perHalaman;
+
+    const zonaList = await prisma.zona.findMany({
+      select: { id: true, nama: true },
+      orderBy: { nama: "asc" },
+    });
 
     res.status(200).json({
-      rows: rows.map((r) => ({
-        id: r.id,
-        nama: r.nama,
-        email: r.email,
-        hp: r.hp,
-        alamat: r.alamat,
-        zona: r.zona?.nama ?? null,
-        golongan: r.golongan?.nama ?? null,
-        totalMeter: r.meter.length,
-        meterUtama: r.meter[0]
-          ? {
-              id: r.meter[0].id,
-              saldoL: Number(r.meter[0].saldoL),
-              relay: r.meter[0].relay,
-            }
-          : null,
-        aktif: r.aktif,
-        dibuatPada: r.dibuatPada.toISOString(),
-      })),
+      baris: tersaring.slice(mulai, mulai + perHalaman),
       total,
-      page,
-      perPage,
+      halaman,
+      perHalaman,
+      halamanTerakhir,
+      jumlahSaring,
+      jumlahStatus,
+      zona: zonaList,
     });
   } catch (err) {
     next(err);
