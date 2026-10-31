@@ -91,6 +91,17 @@ model Pengguna {
   golonganId      String?
   emailTerverifikasiPada DateTime?
   aktif           Boolean   @default(true)
+  /// Akun peragaan yang dibuat `prisma/seed.ts`.
+  ///
+  /// Akun seperti ini dilewatkan dari verifikasi kode saat masuk dari
+  /// perangkat baru. Alasannya praktis: kodenya dikirim ke alamat
+  /// `@jernih.id` yang tidak ada kotak suratnya, sehingga siapa pun yang
+  /// mencoba akun demo di peramban baru terkunci permanen dan seluruh konsol
+  /// menjadi tidak bisa dibuka.
+  ///
+  /// Hanya memengaruhi akun yang ditandai di sini. Akun sungguhan tetap
+  /// melewati verifikasi perangkat baru seperti biasa.
+  akunDemo        Boolean   @default(false)
   /// Ambang peringatan saldo milik pengguna (liter). Terpisah dari alarm
   /// meter yang diatur firmware (≤5 L, ≤2 L, 0 L).
   ambangPeringatanL Int     @default(100)
