@@ -2,7 +2,15 @@
 
 API untuk platform transparansi layanan air PDAM. Warga memantau pemakaian, saldo, dan pengaduannya lewat meter air prabayar, sementara data layanan dan kinerja instansi terbuka untuk publik tanpa perlu akun.
 
-Dibuat untuk **Web In Action — Multimedia In Action (MIA) 2026**, subtema **Public Service Tracking**.
+Dibuat untuk **Web In Action — Multimedia In Action (MIA) 2026**.
+
+Tiga sub-tema yang dipilih, beserta bagian yang mewujudkannya:
+
+| Sub-tema | Wujudnya di sistem ini |
+| --- | --- |
+| **Public Service Tracking** | `GET /api/publik/lacak/:nomor` melacak pengaduan dengan nomor tiket tanpa login, lengkap dengan tenggat SLA, status tepat atau terlambat, dan kronologi penanganan. `GET /api/publik/status-layanan` memantau kondisi tiap zona distribusi. |
+| **Open Government Data** | Sepuluh endpoint `/api/publik/*` terbuka tanpa kunci API. `GET /api/publik/unduh` menyajikan data mentah dalam CSV (RFC 4180) dan JSON berlisensi CC BY 4.0, lengkap dengan daftar batasan datanya. |
+| **Civic Reporting & Accountability** | `POST /api/tiket` menerima laporan warga, menomorinya, menugaskannya ke teknisi, dan menghitung tenggat. `GET /api/publik/kinerja` melaporkan ketepatan penanganan termasuk yang terlambat, bukan hanya yang berhasil. |
 
 [![Deploy](https://github.com/Ahnafprojects/MIA-JERNIH-BE/actions/workflows/deploy.yml/badge.svg)](https://github.com/Ahnafprojects/MIA-JERNIH-BE/actions/workflows/deploy.yml)
 
