@@ -10,7 +10,7 @@ Dibuat untuk **Web In Action — Multimedia In Action (MIA) 2026**, subtema **Pu
 | --- | --- |
 | API produksi | <https://api.jernih.biz.id> ([health check](https://api.jernih.biz.id/health)) |
 | Frontend | <https://jernih.biz.id> ([repositori](https://github.com/Ahnafprojects/MIA-JERNIH-FE)) |
-| Pengujian | 69 tes dalam 15 suite, seluruhnya lolos |
+| Pengujian | 75 tes dalam 15 suite, seluruhnya lolos |
 
 ## Daftar isi
 
@@ -177,7 +177,7 @@ Backend sudah selesai dan berjalan di produksi. Seluruh endpoint yang dibutuhkan
 | Selesai | Endpoint publik: status layanan, lacak, kinerja, statistik, neraca air, unduhan, peta |
 | Selesai | WebSocket dengan isolasi kamar dan pemeriksaan hak akses |
 | Selesai | Penyebaran otomatis lewat GitHub Actions dan Cloudflare Tunnel |
-| Selesai | 69 tes integrasi, `tsc` dan `eslint` bersih |
+| Selesai | 75 tes integrasi, `tsc` dan `eslint` bersih |
 | Berjalan | Pemantauan dan pencatatan terstruktur di produksi |
 
 ## Akun demo
@@ -192,7 +192,7 @@ Seluruh akun berikut dibuat oleh `npm run db:seed` dan langsung bisa dipakai men
 | Teknisi | `teknisi1@jernih.id` | `admin123` | Konsol lapangan: insiden dan inspeksi meter |
 | Teknisi | `teknisi2@jernih.id` | `admin123` | Teknisi cadangan |
 
-Seed juga membuat 120 akun pelanggan dengan meter terpasang di empat zona (Bandung Timur, Cileunyi, Cimahi, Sumedang), telemetri sembilan hari terakhir, neraca air 400 hari ke belakang, dan 320 tiket pengaduan tersebar 100 hari.
+Seed juga membuat 420 akun pelanggan dengan meter terpasang di empat zona (Bandung Timur, Cileunyi, Cimahi, Sumedang), telemetri sembilan hari terakhir, neraca air 400 hari ke belakang, dan 320 tiket pengaduan tersebar 100 hari.
 
 Akun di atas ditandai `akunDemo` di basis data, sehingga dilewatkan dari verifikasi kode saat masuk dari perangkat baru. Tanpa penanda itu, kodenya dikirim ke alamat `@jernih.id` yang tidak punya kotak surat, dan konsol petugas tidak bisa dibuka dari peramban mana pun yang belum pernah dipakai. Akun warga sungguhan tetap melewati verifikasi perangkat baru seperti biasa.
 

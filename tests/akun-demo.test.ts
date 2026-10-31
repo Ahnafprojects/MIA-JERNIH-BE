@@ -185,6 +185,69 @@ describe("GET /api/admin/pelanggan — bentuk yang dibaca konsol", () => {
   });
 });
 
+describe("GET /api/admin/dashboard — bentuk yang dibaca konsol", () => {
+  let tokenOp = "";
+
+  beforeAll(async () => {
+    const res = await masuk(emailOperator, PERANGKAT_A);
+    tokenOp = res.body.accessToken ?? "";
+  });
+
+  it("mengirim seluruh medan dan KPI yang dipakai halaman", async () => {
+    const res = await request(app)
+      .get("/api/admin/dashboard")
+      .set("Authorization", `Bearer ${tokenOp}`);
+    expect(res.status).toBe(200);
+
+    /*
+     * Delapan medan ini dulu tidak pernah dikirim. Akibatnya lima kartu di
+     * pantauan jaringan menampilkan "Tidak dikirim server", dan tiga panel
+     * di bawahnya menampilkan keadaan kosong padahal datanya ada.
+     */
+    for (const medan of [
+      "kpi", "jumlahStatus", "meterBerbunyi", "totalMeterBerbunyi",
+      "insiden", "grafik", "nrwPerZona", "pelangganLive",
+      "tokenHariIni", "tokenHariIniDetail",
+    ]) {
+      expect(res.body).toHaveProperty(medan);
+    }
+
+    const kunci = res.body.kpi.map((k: { key: string }) => k.key);
+    for (const k of [
+      "pelangganAktif", "pelangganNonaktif", "saldoBeredarL",
+      "volumeHariIniM3", "nrwRataPct",
+    ]) {
+      expect(kunci).toContain(k);
+    }
+  });
+
+  it("nrwRataPct dihitung, bukan konstanta 14.8 yang lama", async () => {
+    const [dash, publik] = await Promise.all([
+      request(app).get("/api/admin/dashboard").set("Authorization", `Bearer ${tokenOp}`),
+      request(app).get("/api/publik/statistik?rentang=30"),
+    ]);
+    const nrw = dash.body.kpi.find((k: { key: string }) => k.key === "nrwRataPct");
+
+    /*
+     * Konsol dan halaman publik WAJIB menyebut angka yang sama. Dulu konsol
+     * memakai 14.8 yang ditulis langsung di kode, sementara halaman publik
+     * menghitungnya dari NeracaHarian.
+     */
+    expect(nrw.value).toBe(publik.body.nrwPct);
+  });
+
+  it("grafik membawa dua deret yang dikenali halaman", async () => {
+    const res = await request(app)
+      .get("/api/admin/dashboard")
+      .set("Authorization", `Bearer ${tokenOp}`);
+    const nama = res.body.grafik.series.map((d: { name: string }) => d.name);
+    // `pasanganCelah()` di frontend mencocokkan /disuplai|disalur/ dan /tercatat/.
+    expect(nama.some((n: string) => /disalur|disuplai/i.test(n))).toBe(true);
+    expect(nama.some((n: string) => /tercatat/i.test(n))).toBe(true);
+    expect(res.body.grafik.labels.length).toBe(res.body.grafik.series[0].points.length);
+  });
+});
+
 describe("GET /api/publik/kinerja — bentuk deret tren", () => {
   it("tiap rentang menghasilkan cukup titik untuk digambar sebagai garis", async () => {
     for (const rentang of [7, 30, 90]) {
