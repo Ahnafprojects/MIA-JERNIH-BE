@@ -288,6 +288,25 @@ publikRouter.get("/kinerja", async (req: Request, res: Response, next: NextFunct
       where: { dibuatPada: { gte: batasWaktu } },
     });
 
+    /*
+     * Deret tren butuh tiket yang LEBIH TUA dari rentang yang diminta.
+     *
+     * Tiap titik diukur dari jendela bergerak tujuh hari ke belakang, jadi
+     * titik paling kiri pada rentang 7 hari mengukur hari ke-13 sampai ke-7.
+     * Memakai `tiketList` yang terpotong di hari ke-7 membuat titik-titik
+     * awal berdiri di atas sampel yang jauh lebih sedikit daripada titik
+     * akhir, dan grafiknya melandai palsu di sisi kiri.
+     *
+     * KPI tetap memakai `tiketList` yang terbatas rentang, karena angka
+     * "dihitung dari N pengaduan dalam 30 hari terakhir" harus benar-benar
+     * hanya 30 hari.
+     */
+    const batasTren = new Date(batasWaktu.getTime() - 7 * 24 * 60 * 60 * 1000);
+    const tiketTren = await prisma.tiket.findMany({
+      where: { dibuatPada: { gte: batasTren } },
+      select: { status: true, selesaiPada: true, slaJatuhTempo: true },
+    });
+
     const tiketMasuk = tiketList.length;
     const tiketSelesai = tiketList.filter((t) => t.status === "SELESAI").length;
 
@@ -393,33 +412,71 @@ publikRouter.get("/kinerja", async (req: Request, res: Response, next: NextFunct
      * seluruh gagasannya transparansi, angka karangan adalah cacat yang
      * paling mahal — bukan sekadar tidak rapi.
      *
-     * Pekan dihitung mundur dari sekarang. Pekan tanpa tiket selesai
-     * bernilai `null`, bukan ditambal angka: "belum ada data" dan "100%"
-     * adalah dua pernyataan yang sangat berbeda.
+     * Ember tanpa tiket selesai bernilai `null`, bukan ditambal angka:
+     * "belum ada data" dan "100%" adalah dua pernyataan yang sangat berbeda.
+     *
+     * LEBAR EMBER MENGIKUTI RENTANG, bukan selalu sepekan.
+     *
+     * Sebelumnya ember selalu selebar tujuh hari, sehingga rentang 7 hari
+     * menghasilkan `ceil(7/7) = 1` titik. Satu titik bukan grafik: tidak ada
+     * garis yang bisa digambar, sumbunya kosong, dan pembaca tidak bisa
+     * menyimpulkan apa pun soal arah. Rentang 30 hari pun hanya memberi lima
+     * titik, terlalu sedikit untuk melihat pergerakan.
+     *
+     * Sekarang jarak antartitik mengikuti rentang, dan tiap titik diukur dari
+     * JENDELA BERGERAK tujuh hari ke belakang.
+     *
+     * Jendela tujuh hari, bukan satu hari, karena jaringan ini menyelesaikan
+     * sekitar tiga tiket per hari. Persentase dari tiga sampel hanya bisa
+     * bernilai 0, 33, 67, atau 100, sehingga garisnya melompat-lompat tanpa
+     * menggambarkan apa pun. Dengan jendela sepekan tiap titik berdiri di
+     * atas sekitar dua puluh tiket, dan pergerakannya menjadi terbaca.
+     *
+     * Itu sebabnya judulnya "Pergerakan ketepatan" dan bukan "Ketepatan
+     * harian": yang digambar memang ukuran bergerak, bukan potongan harian.
      */
-    const MS_PEKAN = 7 * 24 * 60 * 60 * 1000;
-    const jumlahPekan = Math.min(8, Math.max(1, Math.ceil(rentangHari / 7)));
+    const MS_HARI = 24 * 60 * 60 * 1000;
+    const hariPerEmber = rentangHari <= 14 ? 1 : rentangHari <= 45 ? 2 : 7;
+    const jumlahEmber = Math.min(
+      24,
+      Math.max(2, Math.ceil(rentangHari / hariPerEmber)),
+    );
+    const MS_EMBER = hariPerEmber * MS_HARI;
+    const MS_JENDELA = Math.max(7, hariPerEmber) * MS_HARI;
+
+    const namaBulan = [
+      "Jan", "Feb", "Mar", "Apr", "Mei", "Jun",
+      "Jul", "Agu", "Sep", "Okt", "Nov", "Des",
+    ];
+
     const labels: string[] = [];
     const points: Array<number | null> = [];
 
-    for (let p = jumlahPekan - 1; p >= 0; p--) {
-      const akhir = new Date(Date.now() - p * MS_PEKAN);
-      const mulai = new Date(akhir.getTime() - MS_PEKAN);
-      const selesaiPekan = tiketList.filter(
+    for (let p = jumlahEmber - 1; p >= 0; p--) {
+      const akhir = new Date(Date.now() - p * MS_EMBER);
+      const mulai = new Date(akhir.getTime() - MS_JENDELA);
+      const selesaiEmber = tiketTren.filter(
         (t) =>
           t.status === "SELESAI" &&
           t.selesaiPada &&
           t.selesaiPada > mulai &&
           t.selesaiPada <= akhir,
       );
-      const tepat = selesaiPekan.filter(
+      const tepat = selesaiEmber.filter(
         (t) => t.selesaiPada && t.selesaiPada <= t.slaJatuhTempo,
       ).length;
 
-      labels.push(p === 0 ? "Pekan ini" : `${p} pekan lalu`);
+      /*
+       * Label memakai tanggal, bukan "3 pekan lalu".
+       *
+       * Label relatif hanya terbaca kalau embernya memang sepekan. Begitu
+       * lebarnya satu atau dua hari, "3 pekan lalu" menjadi keliru, dan
+       * tanggal adalah satu-satunya penanda yang benar untuk semua lebar.
+       */
+      labels.push(`${akhir.getDate()} ${namaBulan[akhir.getMonth()]}`);
       points.push(
-        selesaiPekan.length > 0
-          ? Number(((tepat / selesaiPekan.length) * 100).toFixed(1))
+        selesaiEmber.length > 0
+          ? Number(((tepat / selesaiEmber.length) * 100).toFixed(1))
           : null,
       );
     }
