@@ -13,39 +13,21 @@
  * ── Kenapa membuat baru, bukan mengambil dari kolam ───────────────────
  *
  * Meter yang belum dimiliki memang ada, tetapi jumlahnya terbatas dan isinya
- * sisa artefak pengujian (`MTR_CFG_…`, `MTR_INS_…`) tanpa riwayat apa pun.
- * Membagikannya berarti kolamnya habis setelah beberapa pendaftar, dan yang
- * kebagian pun melihat portal kosong. Membuat meter baru per akun tidak punya
- * dua masalah itu.
+ * sisa artefak pengujian (`MTR_CFG_…`, `MTR_INS_…`). Kolamnya akan habis
+ * setelah beberapa pendaftar. Membuat meter baru per akun tidak punya batas itu.
+ *
+ * ── Yang TIDAK diberikan ──────────────────────────────────────────────
+ *
+ * Saldo. Meter baru dimulai dari nol liter dengan relay nonaktif, persis
+ * seperti sambungan yang baru dipasang dan belum pernah diisi. Air prabayar
+ * berarti saldo hanya bertambah dari token yang dibeli — memberi saldo gratis
+ * saat mendaftar membuat seluruh alur beli-token kehilangan maknanya, dan
+ * angkanya tidak akan pernah cocok dengan riwayat transaksi mana pun.
  *
  * Meter asli yang dipasang di lapangan tetap dihubungkan lewat
  * `POST /api/meter/hubungkan` seperti biasa — jalur itu tidak diubah.
  */
 import { prisma } from "./prisma.js";
-
-/** Berapa hari riwayat pemakaian yang disemai untuk meter baru. */
-const HARI_RIWAYAT = 7;
-
-/**
- * Pola pemakaian rumah tangga sehari, dalam liter per jam (indeks 0–23).
- *
- * Bentuknya sengaja mengikuti kebiasaan nyata: dua puncak di pagi dan sore,
- * nyaris nol saat dini hari. Grafik dan peta panas di portal jadi langsung
- * terbaca sebagai pola, bukan deretan angka acak yang tidak berarti apa-apa.
- */
-const POLA_JAM = [
-  2, 1, 1, 1, 2, 8, 24, 38, 30, 18, 12, 14,
-  16, 12, 10, 11, 18, 32, 36, 26, 18, 12, 7, 3,
-];
-
-/** Saldo awal supaya portal tidak langsung menampilkan keadaan kritis. */
-const SALDO_AWAL_L = 5000;
-
-/** Angka acak kecil agar tiap akun tidak memiliki grafik yang persis sama. */
-const goyang = (nilai: number): number => {
-  const faktor = 0.75 + Math.random() * 0.5; // 0,75–1,25
-  return Math.round(nilai * faktor * 10) / 10;
-};
 
 /**
  * Memastikan sebuah akun punya meter yang bisa dibuka di portal.
@@ -87,10 +69,23 @@ export async function pastikanMeterDemo(
         alamat: "Belum diisi",
         zonaId: zona?.id ?? null,
         penggunaId,
-        saldoL: SALDO_AWAL_L,
+        /*
+         * Saldo DIMULAI DARI NOL. Air prabayar: saldo hanya boleh bertambah
+         * dari token yang dibeli, tidak pernah muncul sendiri saat mendaftar.
+         * Memberi saldo gratis membuat seluruh alur beli-token kehilangan
+         * maknanya, dan angkanya tidak akan pernah cocok dengan riwayat
+         * transaksi mana pun.
+         */
+        saldoL: 0,
         volumeTotalL: 0,
         debitLpm: 0,
-        relay: "AKTIF",
+        /*
+         * Relay NONAKTIF, bukan AKTIF. Aturannya tegas di `rute/meter.ts`:
+         * relay hanya boleh aktif bila saldo > 0 DAN saklar fisik ON. Menyetel
+         * AKTIF saat saldo nol membuat portal menampilkan keadaan yang
+         * melanggar aturannya sendiri.
+         */
+        relay: "NONAKTIF",
         saklarOn: true,
         daring: true,
         terakhirTerlihat: new Date(),
@@ -100,7 +95,6 @@ export async function pastikanMeterDemo(
       select: { id: true },
     });
 
-    await semaiRiwayat(meter.id);
     return meter.id;
   } catch (err) {
     // Sengaja ditelan: verifikasi email lebih penting daripada meter bawaan.
@@ -110,36 +104,4 @@ export async function pastikanMeterDemo(
     );
     return null;
   }
-}
-
-/**
- * Menyemai riwayat pemakaian per jam supaya grafik dan peta panas 7×24 di
- * halaman Pemakaian langsung berisi.
- *
- * Tanpa ini, meter baru menghasilkan halaman kosong total — secara teknis
- * benar, tetapi membuat fitur yang paling banyak dikerjakan jadi tidak
- * terlihat sama sekali oleh pemakai baru.
- */
-async function semaiRiwayat(meterId: string): Promise<void> {
-  const sekarang = new Date();
-  const baris: Array<{ meterId: string; jam: Date; volumeL: number }> = [];
-  let total = 0;
-
-  for (let mundur = HARI_RIWAYAT * 24 - 1; mundur >= 0; mundur -= 1) {
-    const jam = new Date(sekarang.getTime() - mundur * 60 * 60 * 1000);
-    jam.setMinutes(0, 0, 0);
-
-    const volumeL = goyang(POLA_JAM[jam.getHours()] ?? 0);
-    total += volumeL;
-    baris.push({ meterId, jam, volumeL });
-  }
-
-  await prisma.emberPemakaian.createMany({ data: baris, skipDuplicates: true });
-
-  // Volume total meter harus sejalan dengan riwayat yang baru disemai, kalau
-  // tidak angka di kartu meter akan bertentangan dengan grafiknya sendiri.
-  await prisma.meter.update({
-    where: { id: meterId },
-    data: { volumeTotalL: Math.round(total * 100) / 100 },
-  });
 }
