@@ -122,6 +122,7 @@ paketRouter.get("/", wajibMasuk, async (req: Request, res: Response, next: NextF
       golongan: pengguna?.golongan?.nama ?? "Rumah Tangga Umum",
       tarifPerLiter,
       minimalLiter: 500,
+      maksimalLiter: MAKS_LITER_SEKALI_BELI,
       paket: daftarPaket,
     });
   } catch (err) {
@@ -129,11 +130,32 @@ paketRouter.get("/", wajibMasuk, async (req: Request, res: Response, next: NextF
   }
 });
 
+/**
+ * Batas satu kali pembelian, dalam liter.
+ *
+ * Sebelumnya hanya ada batas bawah. Tanpa batas atas, warga bisa mengetik
+ * berapa pun digit dan menghasilkan tagihan seperti
+ * "Rp 15.000.000.000.000.000.000.000" — angkanya jebol keluar kartu dan
+ * transaksinya tetap diterima server.
+ *
+ * 100.000 liter = 100 m³, sekitar tiga kali pemakaian bulanan rumah tangga
+ * besar. Cukup longgar untuk pemakaian wajar, cukup ketat untuk menolak
+ * ketikan yang jelas keliru.
+ */
+const MAKS_LITER_SEKALI_BELI = 100_000;
+
 /* ── 2. POST /api/pembayaran ─────────────────────────────────────────── */
 
 const skemaBeli = z.object({
   meterId: z.string().trim().min(1, "ID meter wajib diisi."),
-  liter: z.number().min(500, "Pembelian minimal 500 liter."),
+  liter: z
+    .number()
+    .int("Volume pembelian harus bilangan bulat liter.")
+    .min(500, "Pembelian minimal 500 liter.")
+    .max(
+      MAKS_LITER_SEKALI_BELI,
+      `Pembelian maksimal ${MAKS_LITER_SEKALI_BELI.toLocaleString("id-ID")} liter sekali transaksi.`,
+    ),
   metode: z.enum(["QRIS", "VA", "EWALLET", "GERAI"]).default("QRIS"),
 });
 
