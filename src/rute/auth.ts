@@ -6,6 +6,7 @@ import { Router, type Request, type Response, type NextFunction } from "express"
 import rateLimit from "express-rate-limit";
 import { z } from "zod";
 import { prisma } from "../lib/prisma.js";
+import { pastikanMeterDemo } from "../lib/meter-demo.js";
 import {
   buatAkses,
   buatKodeEmail,
@@ -278,6 +279,16 @@ authRouter.post(
           alamat: true,
         },
       });
+
+      /*
+       * Beri meter bawaan begitu akun sah.
+       *
+       * Diletakkan SESUDAH verifikasi, bukan saat mendaftar: pendaftaran yang
+       * ditinggalkan di tengah jalan tidak boleh meninggalkan meter yatim di
+       * basis data. Gagal di sini tidak menggagalkan verifikasi — pengguna
+       * tetap masuk dan masih bisa menghubungkan meter secara manual.
+       */
+      await pastikanMeterDemo(pengguna.id, pengguna.nama);
 
       // Buat sesi login
       const refreshToken = buatRefresh();
