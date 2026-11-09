@@ -13,6 +13,7 @@ import { prisma } from "../lib/prisma.js";
 import { notFound } from "../lib/errors.js";
 import { wajibMasuk, wajibPeran } from "../middleware/sesi.js";
 import { emailBroadcast, kirimEmail } from "../lib/email.js";
+import { kabariLewatTelegram } from "../lib/notifikasi.js";
 import { deretHarian, perZonaNeraca, ringkasNeraca } from "../lib/neraca.js";
 
 export const konsolRouter: Router = Router();
@@ -710,6 +711,9 @@ const skemaBroadcast = z.object({
   kanal: z.object({
     push: z.boolean().default(true),
     email: z.boolean().default(false),
+    /* WhatsApp sengaja TIDAK disediakan di sini. Lihat alasannya pada
+       komentar kolom `kanalTelegram` di prisma/schema.prisma. */
+    telegram: z.boolean().default(false),
   }),
 });
 
@@ -730,6 +734,7 @@ konsolRouter.get("/broadcast", async (_req: Request, res: Response, next: NextFu
         zona: b.zona,
         kanalPush: b.kanalPush,
         kanalEmail: b.kanalEmail,
+        kanalTelegram: b.kanalTelegram,
         penerima: b.penerima,
         dibuka: b.dibuka,
         pembuat: b.pembuat.nama,
@@ -764,6 +769,7 @@ konsolRouter.post("/broadcast", async (req: Request, res: Response, next: NextFu
         zona: data.zona ?? null,
         kanalPush: data.kanal.push,
         kanalEmail: data.kanal.email,
+        kanalTelegram: data.kanal.telegram,
         penerima: penerimaCount,
         pembuatId,
       },
@@ -788,6 +794,39 @@ konsolRouter.post("/broadcast", async (req: Request, res: Response, next: NextFu
         if (w.email) {
           kirimEmail(emailBroadcast(w.email, data.judul, data.pesan)).catch(() => {});
         }
+      }
+    }
+
+    /*
+     * Kanal Telegram untuk pengumuman massal.
+     *
+     * Hanya warga yang `telegramChatId`-nya terisi yang dikirimi, dan
+     * keberadaan nilai itu SUDAH merupakan persetujuan: Telegram tidak
+     * mengizinkan bot mengirim pesan pertama, jadi kolom itu hanya bisa
+     * terisi setelah warga sendiri menekan Start di bot lalu menempelkan
+     * kodenya di portal. Tidak perlu bendera opt-in terpisah seperti
+     * WhatsApp.
+     *
+     * Kunci idempotensinya memakai id broadcast dan id warga, bukan waktu.
+     * Operator yang menekan kirim dua kali karena halamannya terasa
+     * menggantung tidak akan menghasilkan dua pengumuman untuk satu siaran.
+     *
+     * `void`, tanpa `await`: ratusan warga berarti ratusan permintaan ke
+     * layanan notifikasi, dan operator tidak boleh menunggu semuanya selesai
+     * sebelum halamannya menjawab. Pengirimannya diantre di layanan itu.
+     *
+     * WhatsApp sengaja TIDAK ada di sini. Pengirim WhatsApp menahan laju
+     * 2,5 detik per pesan agar tidak terbaca sebagai robot, sehingga 424
+     * pelanggan berarti sekitar 18 menit pengiriman beruntun dari satu nomor
+     * bisnis sungguhan — pola yang paling cepat membuat nomor itu diblokir.
+     */
+    if (data.kanal.telegram) {
+      for (const w of targetWarga) {
+        void kabariLewatTelegram(
+          w,
+          `broadcast:${broadcast.id}:${w.id}`,
+          `${data.judul}\n\n${data.pesan}`,
+        );
       }
     }
 
