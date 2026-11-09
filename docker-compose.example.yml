@@ -73,8 +73,52 @@ services:
       # kontainer mengembalikan kosong, dan token yang terbit sesudahnya
       # dijawab `KODE_TIDAK_TERSIMPAN`.
       TOKEN_ENC_KEY: ${TOKEN_ENC_KEY:-}
+      # Layanan notifikasi. Nama host `notifikasi` adalah nama layanan di
+      # bawah; resolusinya lewat jaringan Docker, bukan lewat internet.
+      NOTIFIKASI_URL: ${NOTIFIKASI_URL:-http://notifikasi:5310}
+      NOTIFIKASI_SECRET: ${NOTIFIKASI_SECRET:-}
     depends_on:
       - db
 
+  # ── Pengirim notifikasi WhatsApp dan Telegram ──────────────────────────
+  #
+  # Dipisah dari `app` dengan sengaja. Soket WhatsApp memegang sesi yang
+  # hidup terus dan bisa menggantung puluhan detik saat menyambung ulang;
+  # kalau ia tinggal di dalam proses API, setiap penyambungan ulangnya ikut
+  # menahan permintaan HTTP milik warga.
+  #
+  # TIDAK PERNAH diekspos ke internet. Tidak ada entri cloudflared untuk
+  # port ini, dan portnya diikat ke 127.0.0.1 saja. Endpoint `/qr` di
+  # dalamnya memasangkan PERANGKAT BARU pada nomor WhatsApp tim: siapa pun
+  # yang bisa memindainya bisa membaca dan mengirim pesan atas nama nomor
+  # itu.
+  notifikasi:
+    build: ./notifikasi
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:5310:5310"
+    environment:
+      NODE_ENV: production
+      PORT: 5310
+      # Rahasia yang sama dengan yang dipakai `app` di atas. Sengaja tanpa
+      # nilai bawaan: layanannya berhenti kalau kosong, supaya kegagalannya
+      # terlihat saat menyalakan, bukan nanti saat ada pesan yang hilang.
+      NOTIFIKASI_SECRET: ${NOTIFIKASI_SECRET:-}
+      # Kosongkan untuk mematikan Telegram. Token dari @BotFather.
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      WA_AKTIF: ${WA_AKTIF:-true}
+      WA_SESI_DIR: /data/wa-sesi
+      JEDA_KIRIM_MS: ${JEDA_KIRIM_MS:-2500}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    volumes:
+      # WAJIB. Kredensial pemasangan WhatsApp tinggal di sini; tanpa volume
+      # setiap penyebaran menghapusnya dan menuntut pemindaian QR ulang,
+      # padahal penyebaran terjadi pada setiap push ke `main`.
+      - wa-sesi:/data
+    # Swap server ini sudah terpakai 2 GB. Batas memori dipasang supaya satu
+    # kebocoran di pustaka WhatsApp tidak menyeret seluruh host.
+    mem_limit: 512m
+
 volumes:
   pgdata:
+  wa-sesi:
