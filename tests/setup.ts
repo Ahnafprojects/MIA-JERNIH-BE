@@ -18,3 +18,28 @@ process.env.DEMO_TOKEN_ENABLED = "true";
    terbaca — dan gejalanya "TOKEN_ENC_KEY belum diatur" di tes yang jelas-
    jelas sudah menyetelnya. */
 process.env.TOKEN_ENC_KEY = "kunci-uji-enkripsi-kode-token-jernih";
+
+/*
+ * Layanan notifikasi dianggap TERKONFIGURASI selama pengujian.
+ *
+ * Alasannya sama dengan TOKEN_ENC_KEY di atas: `src/lib/notifikasi.ts`
+ * membaca `NOTIFIKASI_URL` dan `NOTIFIKASI_SECRET` saat MODUL DIMUAT, bukan
+ * saat fungsinya dipanggil. Menyetelnya di dalam `beforeAll` sebuah tes tidak
+ * pernah terbaca, dan `notifikasiAktif()` tetap `false` — sehingga setiap uji
+ * tentang penyaringan opt-in akan lolos tanpa menguji apa pun, karena
+ * `kabariWarga` keluar lebih awal karena alasan yang salah.
+ *
+ * Alamatnya sengaja menunjuk port yang tidak ada. Uji yang memang perlu
+ * mengamati permintaannya mengganti `globalThis.fetch` dengan tiruan; yang
+ * tidak menggantinya akan gagal menyambung, dan itu tetap aman karena
+ * `kabariWarga` menelan galat jaringannya sendiri. Yang jelas tidak akan
+ * terjadi: pesan WhatsApp sungguhan terkirim dari rangkaian uji.
+ *
+ * Dipaksa dengan `=`, BUKAN `??=`, dan itu bedanya penting. Dengan `??=`,
+ * siapa pun yang kebetulan menaruh `NOTIFIKASI_URL` sungguhan di `.env`
+ * miliknya membuat rangkaian uji menunjuk layanan produksi yang memegang
+ * sesi WhatsApp nomor bisnis tim. Uji tidak boleh pernah mewarisi
+ * konfigurasi notifikasi dari lingkungan siapa pun.
+ */
+process.env.NOTIFIKASI_URL = "http://127.0.0.1:59999";
+process.env.NOTIFIKASI_SECRET = "rahasia-notifikasi-uji";

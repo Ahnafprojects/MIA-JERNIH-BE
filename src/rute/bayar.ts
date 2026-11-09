@@ -16,6 +16,11 @@ import { generateKodeToken, formatKodeMasked } from "./token.js";
 import { hashKode } from "../lib/auth.js";
 import { enkripsiKode, kodeBisaDisimpan } from "../lib/kode-token.js";
 import { emailPembelianLunas, kirimEmail } from "../lib/email.js";
+import { kabariWarga } from "../lib/notifikasi.js";
+import {
+  kunciTransaksi,
+  pesanPembelianLunas,
+} from "../lib/pesan-notifikasi.js";
 
 export const bayarRouter: Router = Router();
 export const paketRouter: Router = Router();
@@ -100,6 +105,32 @@ export async function selesaikanPembayaran(transaksiId: string): Promise<{
       kodeToken: kode,
       metode: transaksi.metode,
       waktu: new Date().toISOString(),
+    }),
+  );
+
+  /*
+   * Struk yang sama ke WhatsApp dan Telegram, bila pemiliknya menyetujui.
+   *
+   * Berbeda dari email di atas, ini TIDAK di-`await`. Fungsi ini dipanggil
+   * dari dua tempat yang keduanya sedang melayani permintaan: pelunasan
+   * manual lewat `POST /api/pembayaran`, dan isi otomatis dari jalur baca
+   * `/live`. Keduanya sudah menyelesaikan pekerjaan utamanya sebelum baris
+   * ini, dan tak satu pun boleh tertahan karena antrean WhatsApp.
+   *
+   * Kunci idempotensinya `transaksi:<invoiceId>:LUNAS`. Fungsi ini memang
+   * bisa terpanggil dua kali untuk satu invoice, misalnya saat webhook tiba
+   * setelah lunas-seketika sudah berjalan. Penjaga di baris 46 mencegah
+   * token kedua; kunci ini mencegah pesan kedua.
+   */
+  void kabariWarga(
+    transaksi.pengguna,
+    kunciTransaksi(transaksi.id),
+    pesanPembelianLunas({
+      invoiceId: transaksi.id,
+      volumeL: Number(transaksi.volumeL),
+      jumlahRp: Number(transaksi.jumlahRp),
+      kodeToken: kode,
+      appUrl: env().APP_URL,
     }),
   );
 
