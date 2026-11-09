@@ -1,7 +1,17 @@
 import type { Logger } from "pino";
 
 import { env } from "./env.js";
-import type { Pengirim, Saluran } from "./pengirim/jenis.js";
+import type { HasilKirim, Pengirim, Saluran } from "./pengirim/jenis.js";
+
+/**
+ * Batas waktu satu pengiriman.
+ *
+ * Dibuat longgar dengan sengaja. WhatsApp memeriksa nomor tujuan lebih dulu
+ * lewat `onWhatsApp()` dan menahan laju 2,5 detik sebelum mengirim, jadi
+ * satu pengiriman yang SEHAT pun bisa memakan beberapa detik. Batas yang
+ * terlalu ketat akan mengulang pesan yang sebenarnya baik-baik saja.
+ */
+const BATAS_KIRIM_MS = 30_000;
 
 interface Pekerjaan {
   id: string;
@@ -137,7 +147,7 @@ export class Antrean {
           continue;
         }
 
-        const hasil = await pengirim.kirim(kerja.tujuan, kerja.pesan);
+        const hasil = await this.kirimBerbatas(pengirim, kerja);
 
         if (hasil.terkirim) {
           this.sudahDiproses.set(kerja.id, Date.now());
@@ -170,6 +180,62 @@ export class Antrean {
       }
     } finally {
       this.berjalan = false;
+    }
+  }
+
+  /**
+   * Pengiriman dengan BATAS WAKTU.
+   *
+   * ── Kenapa ini ada ───────────────────────────────────────────────────
+   *
+   * Antrean ini memproses satu pekerjaan pada satu waktu. Tanpa batas waktu,
+   * satu permintaan yang menggantung ke penyedia menahan SELURUH antrean
+   * selamanya — dan diam-diam, karena tidak ada galat yang dilempar dan
+   * tidak ada baris log yang ditulis.
+   *
+   * Terjadi sungguhan di produksi: tiga pesan dititipkan, satu tersangkut di
+   * dalam `kirim`, dua menunggu di belakangnya, dan `/status` menunjukkan
+   * `antre: 2` yang tidak bergerak dengan NOL baris "ditunda" maupun
+   * "terkirim". Dari luar, fiturnya tampak sekadar "tidak jalan".
+   *
+   * Batasnya dipasang DI SINI, bukan di masing-masing pengirim, supaya
+   * penyedia baru apa pun yang ditambahkan kelak ikut terlindungi tanpa
+   * harus ingat memasangnya sendiri.
+   *
+   * Habisnya waktu dianggap BOLEH DIULANG: permintaan yang menggantung
+   * biasanya soal jaringan, dan pesannya mungkin sebenarnya sudah sampai.
+   * Kunci idempotensi di sisi penyedia tidak ada, jadi ada kemungkinan kecil
+   * pesan ganda — itu pilihan yang disengaja, karena kabar yang sampai dua
+   * kali jauh lebih baik daripada kabar yang tidak pernah sampai.
+   */
+  private async kirimBerbatas(
+    pengirim: Pengirim,
+    kerja: Pekerjaan,
+  ): Promise<HasilKirim> {
+    let penanda: NodeJS.Timeout | undefined;
+
+    const batas = new Promise<HasilKirim>((selesai) => {
+      penanda = setTimeout(
+        () =>
+          selesai({
+            terkirim: false,
+            bolehUlang: true,
+            galat: `Pengiriman tidak selesai dalam ${BATAS_KIRIM_MS} ms.`,
+          }),
+        BATAS_KIRIM_MS,
+      );
+    });
+
+    try {
+      return await Promise.race([
+        pengirim.kirim(kerja.tujuan, kerja.pesan),
+        batas,
+      ]);
+    } finally {
+      // WAJIB. Tanpa ini penanda waktunya tetap hidup setelah pengiriman
+      // berhasil, dan prosesnya menahan satu timer per pesan yang pernah
+      // dikirim.
+      if (penanda) clearTimeout(penanda);
     }
   }
 
