@@ -68,6 +68,21 @@ const skema = z.object({
    */
   DEMO_TOKEN_ENABLED: bool(false),
 
+  /**
+   * Kunci enkripsi kode token (AES-256-GCM).
+   *
+   * Dipakai `lib/kode-token.ts` supaya kode token bisa DIBACAKAN ULANG
+   * kepada pemiliknya sampai dipakai — persis seperti kode pada struk token
+   * listrik. Tanpa kunci ini token tetap terbit, hanya kodenya tidak bisa
+   * ditampilkan lagi sesudah pembelian.
+   *
+   * Sengaja TIDAK wajib: menjadikannya wajib membuat server yang sudah
+   * berjalan menolak start setelah pembaruan, dan menolak start berarti
+   * seluruh layanan mati demi satu fitur tampilan. Panjangnya bebas — nilai
+   * apa pun dilewatkan SHA-256 dulu untuk menjadi kunci 32 byte.
+   */
+  TOKEN_ENC_KEY: z.string().default(""),
+
   SEED_PASSWORD: z.string().default("admin123"),
 });
 

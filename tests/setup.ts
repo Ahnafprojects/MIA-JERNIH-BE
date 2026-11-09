@@ -12,3 +12,9 @@ process.env.DATABASE_URL ??=
 process.env.JWT_SECRET ??= "kunci-uji-minimal-tiga-puluh-dua-karakter-aman";
 process.env.MAIL_ENABLED = "false";
 process.env.DEMO_TOKEN_ENABLED = "true";
+/* Kunci enkripsi kode token. Disetel DI SINI, bukan di `beforeAll` berkas
+   tesnya: `env()` membaca `process.env` sekali lalu menyimpannya, jadi
+   apa pun yang disetel sesudah modul pertama memanggilnya tidak pernah
+   terbaca — dan gejalanya "TOKEN_ENC_KEY belum diatur" di tes yang jelas-
+   jelas sudah menyetelnya. */
+process.env.TOKEN_ENC_KEY = "kunci-uji-enkripsi-kode-token-jernih";
