@@ -370,6 +370,44 @@ konsolRouter.get("/pelanggan", async (req: Request, res: Response, next: NextFun
   }
 });
 
+/**
+ * Menemukan id PENGGUNA dari id yang dioper konsol.
+ *
+ * ── Kenapa helper ini ada ─────────────────────────────────────────────
+ *
+ * `GET /api/admin/pelanggan` mengembalikan baris yang ber-`id` METER
+ * (`P0091`, `PT0287`), sebab satu baris di sana mewakili satu sambungan,
+ * bukan satu orang. Sementara rute `/pelanggan/:id` mencari `Pengguna.id`
+ * yang berupa cuid.
+ *
+ * Akibatnya setiap pelanggan yang diklik di konsol membalas 404 dengan
+ * "Pelanggan tidak ditemukan" — seluruhnya, tanpa kecuali. Gejalanya
+ * menyesatkan ke arah yang salah: terbaca seperti seed yang gagal atau data
+ * yang kurang, padahal datanya lengkap dan yang keliru hanya bentuk id.
+ *
+ * Tiga tempat di frontend merangkai tautannya dari id meter: daftar
+ * pelanggan, daftar meter di peta, dan kartu pin peta. Menyelesaikannya di
+ * sini menyembuhkan ketiganya sekaligus.
+ *
+ * Dijadikan helper, bukan ditambal per rute, karena `/pelanggan/:id/email`
+ * punya cacat yang sama persis. Rute itu kebetulan belum dipakai frontend,
+ * jadi belum pernah terlihat rusak — dan cacat yang belum terlihat adalah
+ * yang paling mungkin terlupakan saat rutenya mulai dipakai.
+ */
+async function idPenggunaDariIdKonsol(id: string): Promise<string | null> {
+  const pengguna = await prisma.pengguna.findUnique({
+    where: { id },
+    select: { id: true },
+  });
+  if (pengguna) return pengguna.id;
+
+  const meter = await prisma.meter.findUnique({
+    where: { id },
+    select: { penggunaId: true },
+  });
+  return meter?.penggunaId ?? null;
+}
+
 /* ── 3. GET /api/admin/pelanggan/:id ─────────────────────────────────── */
 
 konsolRouter.get("/pelanggan/:id", async (req: Request, res: Response, next: NextFunction) => {
@@ -377,8 +415,35 @@ konsolRouter.get("/pelanggan/:id", async (req: Request, res: Response, next: Nex
     const id = req.params.id as string;
     if (!id) throw notFound("ID pelanggan tidak valid.");
 
+    /*
+     * Menerima DUA bentuk id: id pengguna dan id meter.
+     *
+     * ── Kenapa, dan kenapa ini bukan sekadar kemurahan hati ───────────
+     *
+     * `GET /api/admin/pelanggan` mengembalikan baris yang ber-`id` METER
+     * (`P0091`, `PT0287`), sebab satu baris di sana mewakili satu sambungan,
+     * bukan satu orang. Endpoint ini dulu hanya mencari `Pengguna.id` yang
+     * berupa cuid. Akibatnya SETIAP pelanggan yang diklik membalas 404
+     * dengan "Pelanggan tidak ditemukan" — ke-396-nya, tanpa kecuali.
+     *
+     * Gejalanya menyesatkan ke arah yang salah: ia terbaca seperti data yang
+     * kurang atau seed yang gagal, padahal datanya lengkap dan yang keliru
+     * hanya bentuk id yang dioper.
+     *
+     * Tiga tempat di frontend merangkai tautannya dari id meter: daftar
+     * pelanggan, daftar meter di peta, dan kartu pin peta. Memperbaikinya di
+     * sini menyembuhkan ketiganya sekaligus; memperbaiki di frontend berarti
+     * tiga perubahan yang harus konsisten selamanya.
+     *
+     * Satu orang bisa memegang beberapa meter, jadi dua baris berbeda di
+     * daftar bisa bermuara ke pelanggan yang sama. Itu benar: halaman
+     * detailnya menampilkan orangnya beserta SELURUH meternya.
+     */
+    const idPengguna = await idPenggunaDariIdKonsol(id);
+    if (!idPengguna) throw notFound("Pelanggan tidak ditemukan.");
+
     const pelanggan = await prisma.pengguna.findUnique({
-      where: { id },
+      where: { id: idPengguna },
       include: {
         zona: true,
         golongan: true,
@@ -388,14 +453,25 @@ konsolRouter.get("/pelanggan/:id", async (req: Request, res: Response, next: Nex
 
     if (!pelanggan) throw notFound("Pelanggan tidak ditemukan.");
 
+    /*
+     * Kedua kueri di bawah memakai `pelanggan.id`, BUKAN `id` dari parameter.
+     *
+     * Bedanya menentukan: begitu pelanggannya ditemukan lewat id meter,
+     * `id` berisi id meter sedangkan `pemilikId` dan `aktorId` menyimpan id
+     * pengguna. Memakai `id` mentah akan mengembalikan larik kosong, dan
+     * gejalanya paling buruk dari semua kemungkinan — halaman detail terbuka
+     * normal, hanya riwayat token dan aktivitasnya kosong. Petugas akan
+     * menyimpulkan pelanggan itu tidak pernah membeli apa pun, padahal
+     * datanya ada.
+     */
     const [riwayatToken, auditAktivitas] = await Promise.all([
       prisma.token.findMany({
-        where: { pemilikId: id },
+        where: { pemilikId: pelanggan.id },
         orderBy: { dibuatPada: "desc" },
         take: 10,
       }),
       prisma.auditLog.findMany({
-        where: { aktorId: id },
+        where: { aktorId: pelanggan.id },
         orderBy: { ts: "desc" },
         take: 10,
       }),
@@ -456,9 +532,12 @@ konsolRouter.post("/pelanggan/:id/email", async (req: Request, res: Response, ne
     const id = req.params.id as string;
     if (!id) throw notFound("ID pelanggan tidak valid.");
 
-    const pelanggan = await prisma.pengguna.findUnique({
-      where: { id },
-    });
+    // Helper yang sama seperti rute detail: id yang dioper konsol bisa berupa
+    // id meter, bukan id pengguna. Lihat komentar helper-nya.
+    const idPengguna = await idPenggunaDariIdKonsol(id);
+    const pelanggan = idPengguna
+      ? await prisma.pengguna.findUnique({ where: { id: idPengguna } })
+      : null;
 
     if (!pelanggan) throw notFound("Pelanggan tidak ditemukan.");
 
