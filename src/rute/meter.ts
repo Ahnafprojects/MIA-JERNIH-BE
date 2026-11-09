@@ -9,6 +9,7 @@ import pkg from "@prisma/client";
 const { StatusRelay } = pkg;
 import { prisma } from "../lib/prisma.js";
 import { periksaIsiOtomatis } from "../lib/isi-otomatis.js";
+import { periksaSaldoMenipis } from "../lib/saldo-menipis.js";
 import { badRequest, forbidden, notFound } from "../lib/errors.js";
 import { wajibMasuk } from "../middleware/sesi.js";
 import { log } from "../lib/log.js";
@@ -163,6 +164,21 @@ meterRouter.get("/:id/live", async (req: Request, res: Response, next: NextFunct
      * (jeda tersimpan di basis data + kuncian per meter).
      */
     void periksaIsiOtomatis(meter.id);
+
+    /*
+     * Peringatan saldo menipis, dengan alasan yang sama seperti di atas:
+     * ini satu-satunya momen saldo benar-benar dibaca.
+     *
+     * TERPISAH dari `periksaIsiOtomatis`, dan itu bukan kebetulan. Fungsi
+     * itu berhenti lebih awal begitu `isiOtomatisAktif` bernilai false —
+     * padahal pada warga yang TIDAK memakai isi otomatis, peringatan inilah
+     * satu-satunya jaring pengaman yang ia punya.
+     *
+     * Penjaga terhadap pemanggilan tiap lima detik ada di dalam fungsinya,
+     * berupa baris `Notifikasi` harian yang bertahan melewati pembuatan
+     * ulang kontainer.
+     */
+    void periksaSaldoMenipis(meter.id);
 
     res.status(200).json({
       meterId: meter.id,
