@@ -62,6 +62,17 @@ services:
       # di lingkungan peragaan, karena token ini bisa ditukar berulang kali.
       DEMO_TOKEN_ENABLED: ${DEMO_TOKEN_ENABLED:-false}
       SEED_PASSWORD: ${SEED_PASSWORD:-admin123}
+      # Kunci enkripsi kode token. Tanpa ini token tetap terbit, hanya
+      # kodenya tidak bisa dibacakan ulang ke pemiliknya — jadi halaman
+      # pembayaran berhasil dan riwayat tidak akan pernah menampilkannya.
+      #
+      # WAJIB disebut di sini. Blok `environment:` meneruskan variabel satu
+      # per satu, jadi mengisi `.env` saja TIDAK cukup: nilainya mendarat di
+      # host tetapi tidak pernah masuk ke kontainer. Dibuktikan di produksi —
+      # kunci terpasang di `.env`, `printenv TOKEN_ENC_KEY` di dalam
+      # kontainer mengembalikan kosong, dan token yang terbit sesudahnya
+      # dijawab `KODE_TIDAK_TERSIMPAN`.
+      TOKEN_ENC_KEY: ${TOKEN_ENC_KEY:-}
     depends_on:
       - db
 
