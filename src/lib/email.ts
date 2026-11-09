@@ -228,10 +228,26 @@ export function emailPembelianLunas(
     jumlahRp: number;
     kodeToken: string;
     waktu: string;
+    metode?: string;
   },
 ): OpsiKirimEmail {
+  /*
+   * `waktu` dan `metode` sudah lama DIKIRIM oleh pemanggil tetapi tidak
+   * pernah digambar di struknya. Akibatnya email ini bukan struk yang utuh:
+   * tidak ada tanggal dan tidak ada cara bayar, dua hal pertama yang dicari
+   * orang saat mencocokkan tagihan dengan mutasi rekeningnya.
+   *
+   * Waktu diformat ke zona Asia/Jakarta secara eksplisit. Server bisa
+   * berjalan di UTC, dan struk yang menulis jam tujuh pagi untuk pembelian
+   * pukul dua siang akan terbaca sebagai transaksi milik orang lain.
+   */
+  const waktuLokal = new Date(detail.waktu).toLocaleString("id-ID", {
+    dateStyle: "long",
+    timeStyle: "short",
+    timeZone: "Asia/Jakarta",
+  });
   const subjek = `Struk Pembelian & Kode Token Air #${detail.invoiceId}`;
-  const teks = `Halo,\n\nPembelian air Anda telah lunas.\nInvoice: ${detail.invoiceId}\nID Meter: ${detail.meterId}\nVolume: ${detail.volumeL.toLocaleString("id-ID")} Liter\nTotal: Rp ${detail.jumlahRp.toLocaleString("id-ID")}\n\nKODE TOKEN AIR ANDA:\n${detail.kodeToken}\n\nMasukkan kode di atas ke meter air atau tukarkan di aplikasi Jernih.\n\nSalam,\nTim Jernih`;
+  const teks = `Halo,\n\nPembelian air Anda telah lunas.\nInvoice: ${detail.invoiceId}\nID Meter: ${detail.meterId}\nVolume: ${detail.volumeL.toLocaleString("id-ID")} Liter\nTotal: Rp ${detail.jumlahRp.toLocaleString("id-ID")}\nMetode: ${detail.metode ?? "-"}\nWaktu: ${waktuLokal}\n\nKODE TOKEN AIR ANDA:\n${detail.kodeToken}\n\nMasukkan kode di atas ke meter air atau tukarkan di aplikasi Jernih.\n\nSalam,\nTim Jernih`;
   const html = bungkusTemplate(
     subjek,
     `<h2 style="margin-top: 0; font-size: 18px; color: #111827;">Pembelian Berhasil & Struk Pembayaran</h2>
@@ -245,6 +261,8 @@ export function emailPembelianLunas(
        <tr><td style="padding: 6px 0; color: #6b7280;">No. Invoice</td><td style="padding: 6px 0; text-align: right; font-weight: 600;">${detail.invoiceId}</td></tr>
        <tr><td style="padding: 6px 0; color: #6b7280;">ID Meter</td><td style="padding: 6px 0; text-align: right; font-weight: 600;">${detail.meterId}</td></tr>
        <tr><td style="padding: 6px 0; color: #6b7280;">Volume Air</td><td style="padding: 6px 0; text-align: right; font-weight: 600;">${detail.volumeL.toLocaleString("id-ID")} Liter</td></tr>
+       <tr><td style="padding: 6px 0; color: #6b7280;">Metode Bayar</td><td style="padding: 6px 0; text-align: right; font-weight: 600;">${amanHtml(detail.metode ?? "-")}</td></tr>
+       <tr><td style="padding: 6px 0; color: #6b7280;">Waktu</td><td style="padding: 6px 0; text-align: right; font-weight: 600;">${amanHtml(waktuLokal)}</td></tr>
        <tr><td style="padding: 6px 0; color: #6b7280;">Total Biaya</td><td style="padding: 6px 0; text-align: right; font-weight: 700; color: #0284c7;">Rp ${detail.jumlahRp.toLocaleString("id-ID")}</td></tr>
      </table>`,
   );

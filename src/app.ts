@@ -27,6 +27,7 @@ import {
   paketRouter,
   pembayaranRouter,
   transaksiRouter,
+  isiOtomatisRouter,
 } from "./rute/bayar.js";
 import { tiketRouter, adminTiketRouter } from "./rute/tiket.js";
 import { adminInsidenRouter } from "./rute/insiden.js";
@@ -90,6 +91,7 @@ export function buatApp(): Express {
   app.use("/api/pembayaran", pembayaranRouter);
   app.use("/api/transaksi", transaksiRouter);
   app.use("/api/bayar", bayarRouter);
+  app.use("/api/isi-otomatis", isiOtomatisRouter);
   app.use("/api/tiket", tiketRouter);
   app.use("/api/notifikasi", notifikasiRouter);
   app.use("/api/admin/token", adminTokenRouter);
