@@ -325,11 +325,25 @@ model Golongan {
 
 model Token {
   id            String      @id @default(cuid())
-  /// Hash kode lengkap. Kode asli TIDAK disimpan — satu-satunya salinan utuh
-  /// ada di email struk dan di jawaban pembelian, sekali saja.
+  /// Hash kode lengkap. Yang MEMVERIFIKASI penukaran, dan `@unique`-nya
+  /// sekaligus mencegah dua token berkode sama pernah terbit — jaminan yang
+  /// tidak bisa diberikan `kodeTersandi`, karena IV-nya acak.
   kodeHash      String      @unique
   /// Lima digit pertama, untuk ditampilkan bertopeng: "48217 •••••".
   kodeAwalan    String
+  /// Kode utuh TERENKRIPSI (AES-256-GCM, lihat `lib/kode-token.ts`), supaya
+  /// bisa dibacakan ulang kepada pemiliknya selama token belum dipakai —
+  /// seperti kode pada struk token listrik.
+  ///
+  /// Hash saja tidak cukup: warga bisa membeli hari ini lalu mengisi besok
+  /// dari perangkat lain, dan isi otomatis menerbitkan token tanpa warga
+  /// membuka halaman apa pun. Pada kedua keadaan itu tidak ada peramban yang
+  /// sempat memegang kodenya.
+  ///
+  /// DIKOSONGKAN begitu token ditukarkan, kedaluwarsa, atau dibatalkan: kode
+  /// yang tidak bisa dipakai lagi tidak punya alasan untuk tetap tersimpan.
+  /// Null juga berarti "diterbitkan sebelum kolom ini ada".
+  kodeTersandi  String?
   nilaiL        Decimal     @db.Decimal(14, 2)
   status        StatusToken @default(AKTIF)
   sumber        SumberToken @default(PEMBELIAN)

@@ -11,6 +11,7 @@ type StatusToken = (typeof StatusToken)[keyof typeof StatusToken];
 type SumberToken = (typeof SumberToken)[keyof typeof SumberToken];
 import { prisma } from "../lib/prisma.js";
 import { badRequest, forbidden, notFound } from "../lib/errors.js";
+import { dekripsiKode } from "../lib/kode-token.js";
 import { wajibMasuk, wajibPeran } from "../middleware/sesi.js";
 import { hashKode } from "../lib/auth.js";
 import { lcdUtama } from "./meter.js";
@@ -241,6 +242,13 @@ tokenRouter.post("/tukar", wajibMasuk, async (req: Request, res: Response, next:
           status: StatusToken.TERPAKAI,
           dipakaiPada: new Date(),
           dipakaiMeterId: meterId,
+          /* Kode terenkripsi DIBUANG di transaksi yang sama dengan
+             penukarannya. Kode yang sudah terpakai tidak bisa dipakai lagi,
+             jadi menyimpannya cuma memperpanjang umur risiko tanpa satu pun
+             manfaat. Dikosongkan di sini, bukan lewat pembersih terjadwal,
+             supaya tidak pernah ada jendela waktu antara "sudah dipakai" dan
+             "kodenya hilang". */
+          kodeTersandi: null,
         },
       }),
       prisma.meter.update({
@@ -284,6 +292,121 @@ tokenRouter.post("/tukar", wajibMasuk, async (req: Request, res: Response, next:
     next(err);
   }
 });
+
+/* ── 2a. GET /api/token/:id/kode ──────────────────────────────────────
+ *
+ * Mengembalikan kode token UTUH kepada pemiliknya, selama token belum
+ * dipakai. Inilah yang membuat kode token berperilaku seperti kode pada
+ * struk token listrik: bisa dibuka lagi besok, dari perangkat mana pun,
+ * sampai ia benar-benar ditukarkan.
+ *
+ * Tiga syarat, semuanya harus terpenuhi:
+ *   1. Pemanggilnya pemilik token itu — bukan sekadar sudah masuk.
+ *   2. Statusnya masih AKTIF.
+ *   3. Belum lewat masa berlakunya.
+ *
+ * Yang gagal syarat 1 dijawab 404, BUKAN 403. Membedakan "bukan milik Anda"
+ * dari "tidak ada" memberi tahu penyerang bahwa id yang ditebaknya benar —
+ * dan id token adalah cuid yang muncul di jawaban API lain.
+ *
+ * Pengambilannya dicatat di audit log. Kode yang bisa dibuka ulang menuntut
+ * jejak siapa yang membukanya; tanpa itu, penyalahgunaan sesi yang dicuri
+ * tidak meninggalkan bekas apa pun.
+ */
+tokenRouter.get(
+  "/:id/kode",
+  wajibMasuk,
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const penggunaId = req.pengguna!.id;
+      const tokenId = String(req.params.id ?? "");
+
+      const token = await prisma.token.findFirst({
+        where: { id: tokenId, pemilikId: penggunaId },
+        select: {
+          id: true,
+          status: true,
+          kodeAwalan: true,
+          kodeTersandi: true,
+          kedaluwarsaPada: true,
+          nilaiL: true,
+          meterId: true,
+        },
+      });
+
+      if (!token) {
+        throw notFound("Token tidak ditemukan.");
+      }
+
+      /*
+       * Token yang sudah dipakai atau kedaluwarsa dijawab 200 dengan
+       * `kode: null` dan alasannya — bukan galat.
+       *
+       * Ini BUKAN kegagalan permintaan: pertanyaannya ("apa kodenya?")
+       * terjawab dengan benar, jawabannya memang "tidak ada lagi". Dijawab
+       * sebagai galat, halaman riwayat harus menebak sendiri bedanya
+       * gangguan jaringan dari token yang memang sudah terpakai, dan tebakan
+       * itu akan salah pada saat yang paling membingungkan warga.
+       */
+      const kedaluwarsa = token.kedaluwarsaPada.getTime() <= Date.now();
+      if (token.status !== StatusToken.AKTIF || kedaluwarsa) {
+        res.status(200).json({
+          id: token.id,
+          kode: null,
+          kodeBertopeng: formatKodeMasked(token.kodeAwalan),
+          status: kedaluwarsa && token.status === StatusToken.AKTIF
+            ? StatusToken.KEDALUWARSA
+            : token.status,
+          alasan: "TOKEN_TIDAK_AKTIF",
+        });
+        return;
+      }
+
+      const kode = dekripsiKode(token.kodeTersandi);
+
+      if (!kode) {
+        /*
+         * Token terbit SEBELUM kolom `kodeTersandi` ada, atau kuncinya
+         * diputar tanpa migrasi data. Keduanya tidak bisa dipulihkan —
+         * kode aslinya memang tidak pernah tersimpan di mana pun.
+         *
+         * Dikatakan terus terang dengan kode alasan sendiri supaya UI bisa
+         * mengarahkan warga ke email struknya, alih-alih menampilkan
+         * bintang-bintang tanpa penjelasan.
+         */
+        res.status(200).json({
+          id: token.id,
+          kode: null,
+          kodeBertopeng: formatKodeMasked(token.kodeAwalan),
+          status: token.status,
+          alasan: "KODE_TIDAK_TERSIMPAN",
+        });
+        return;
+      }
+
+      await prisma.auditLog.create({
+        data: {
+          aktorId: penggunaId,
+          aktorNama: req.pengguna!.id,
+          aksi: "LIHAT_KODE_TOKEN",
+          detail: `Membuka kode token ${token.id} senilai ${Number(token.nilaiL)} L untuk meter ${token.meterId ?? "-"}.`,
+          tipe: "TOKEN",
+          ip: req.ip ?? "127.0.0.1",
+        },
+      });
+
+      res.status(200).json({
+        id: token.id,
+        kode,
+        kodeBertopeng: formatKodeMasked(token.kodeAwalan),
+        status: token.status,
+        kedaluwarsaPada: token.kedaluwarsaPada.toISOString(),
+      });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
 
 /* ── 2. GET /api/token/belum-dipakai ─────────────────────────────────── */
 

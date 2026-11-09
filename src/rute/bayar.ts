@@ -14,6 +14,7 @@ import { wajibMasuk } from "../middleware/sesi.js";
 import { env } from "../env.js";
 import { generateKodeToken, formatKodeMasked } from "./token.js";
 import { hashKode } from "../lib/auth.js";
+import { enkripsiKode, kodeBisaDisimpan } from "../lib/kode-token.js";
 import { emailPembelianLunas, kirimEmail } from "../lib/email.js";
 
 export const bayarRouter: Router = Router();
@@ -63,6 +64,12 @@ export async function selesaikanPembayaran(transaksiId: string): Promise<{
       data: {
         kodeHash,
         kodeAwalan,
+        /* Satu-satunya saat kode utuh pernah ada. Disimpan terenkripsi
+           supaya pemiliknya bisa membukanya lagi sampai token dipakai.
+           Tanpa ini, token hasil ISI OTOMATIS — yang tidak pernah melewati
+           peramban siapa pun — cuma hidup di email, dan hilang permanen
+           kalau emailnya gagal terkirim, padahal saldo sudah terpotong. */
+        kodeTersandi: kodeBisaDisimpan() ? enkripsiKode(kode) : null,
         nilaiL: transaksi.volumeL,
         status: StatusToken.AKTIF,
         sumber: SumberToken.PEMBELIAN,
@@ -250,7 +257,7 @@ pembayaranRouter.get(
       const tx = await prisma.transaksi.findUnique({
         where: { id: invoice },
         include: {
-          token: { select: { kodeAwalan: true, status: true } },
+          token: { select: { id: true, kodeAwalan: true, status: true } },
         },
       });
 
@@ -273,6 +280,10 @@ pembayaranRouter.get(
         nomorVa: tx.nomorVa,
         dibayarPada: tx.dibayarPada?.toISOString() ?? null,
         dibuatPada: tx.dibuatPada.toISOString(),
+        /* Supaya halaman invoice bisa meminta kode utuhnya lewat
+           `GET /api/token/:id/kode` saat tautan ini dibuka dari email atau
+           dari perangkat selain tab pembeliannya. */
+        tokenId: tx.token[0]?.id ?? null,
       });
     } catch (err) {
       next(err);
@@ -381,6 +392,18 @@ transaksiRouter.get("/", wajibMasuk, async (req: Request, res: Response, next: N
         metode: r.metode,
         status: r.status,
         token: r.token[0] ? formatKodeMasked(r.token[0].kodeAwalan) : null,
+        /*
+         * `tokenId` dan `tokenStatus` ikut dikirim supaya halaman riwayat
+         * bisa meminta kode utuhnya lewat `GET /api/token/:id/kode`.
+         *
+         * Tanpa keduanya, satu-satunya jalan dari invoice ke token adalah
+         * menebak lewat lima digit awalan — dan lima digit bisa dimiliki dua
+         * token berbeda. Statusnya dikirim juga supaya UI bisa membedakan
+         * "kodenya masih ada" dari "tokennya sudah dipakai" tanpa permintaan
+         * tambahan yang sudah pasti ditolak.
+         */
+        tokenId: r.token[0]?.id ?? null,
+        tokenStatus: r.token[0]?.status ?? null,
         dibuatPada: r.dibuatPada.toISOString(),
         dibayarPada: r.dibayarPada?.toISOString() ?? null,
       })),
