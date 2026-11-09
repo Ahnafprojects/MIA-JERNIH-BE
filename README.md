@@ -45,7 +45,7 @@ Pemecahan masalah saat pengembangan ada di
 
 Lima bagian, semuanya terhubung lewat satu basis data.
 
-**Meter air prabayar.** Tiap pelanggan punya meter dengan saldo dalam liter. Meter mengirim telemetri pemakaian, dan backend menutup katup saat saldo habis. Representasi tampilan LCD dua baris disiapkan di sisi server, sehingga firmware ESP32 tinggal menampilkannya tanpa menghitung sendiri.
+**Meter air prabayar.** Tiap pelanggan punya meter dengan saldo dalam liter. Meter mengirim telemetri pemakaian, dan backend menutup katup saat saldo habis. Representasi tampilan layar dua baris disusun di sisi server, sehingga meter cukup menampilkannya tanpa menghitung sendiri.
 
 **Token air.** Saldo diisi memakai kode 10 digit yang dibangkitkan secara kriptografis. Satu kode hanya bisa ditukar sekali, dan percobaan gagal dibatasi untuk mencegah tebakan beruntun.
 
@@ -328,7 +328,7 @@ Seluruhnya berawalan `/api/admin` dan menuntut peran selain warga: `dashboard`, 
 | | `KodeEmail` | Kode verifikasi dan masuk dari perangkat baru |
 | Jaringan | `Zona` | Wilayah distribusi dan batas GeoJSON |
 | | `NeracaHarian` | Bacaan meter induk dan meter pelanggan per zona per hari |
-| | `Meter` | Meter pelanggan: saldo, relay, versi firmware, RSSI |
+| | `Meter` | Meter pelanggan: saldo, status katup, koordinat, zona |
 | | `RiwayatMeter` | Jejak perubahan kepemilikan dan konfigurasi |
 | | `EmberPemakaian` | Telemetri pemakaian per jam |
 | Komersial | `Golongan` | Golongan tarif dalam rupiah per liter |
