@@ -124,6 +124,20 @@ const skemaLupa = z.object({
   email: z.string().trim().email().toLowerCase(),
 });
 
+/**
+ * Ubah kata sandi dari dalam akun yang sudah masuk.
+ *
+ * `kataSandiBaru` memakai batas yang SAMA PERSIS dengan `skemaDaftar` —
+ * minimal 8 karakter. Menulis aturan yang berbeda di sini akan menghasilkan
+ * keadaan mustahil: sandi yang diterima saat mengubah tetapi ditolak saat
+ * mendaftar, atau sebaliknya. Kalau aturan pendaftaran berubah, baris ini
+ * harus ikut berubah.
+ */
+const skemaUbahSandi = z.object({
+  kataSandiLama: z.string().min(1, "Kata sandi lama wajib diisi."),
+  kataSandiBaru: z.string().min(8, "Kata sandi baru minimal 8 karakter."),
+});
+
 const skemaAturUlang = z.object({
   /*
    * Minimal 32 karakter — BUKAN 6.
@@ -876,7 +890,111 @@ meRouter.get("/sesi", wajibMasuk, async (req: Request, res: Response, next: Next
   }
 });
 
-/* ── 12. DELETE /api/me/sesi/:id ────────────────────────────────────── */
+/* ── 12. PUT /api/me/kata-sandi ─────────────────────────────────────── */
+
+/**
+ * Mengganti kata sandi sendiri.
+ *
+ * Berbeda dari `/api/auth/atur-ulang`, yang dipakai orang yang LUPA sandinya
+ * dan membuktikan diri lewat tautan email. Di sini pemiliknya sedang masuk,
+ * jadi buktinya adalah sandi lama — dan sandi lama itu WAJIB, bukan
+ * kenyamanan. Tanpa pemeriksaan itu, sesi yang ditinggalkan terbuka di
+ * laptop atau warnet cukup untuk mengambil alih akun secara permanen:
+ * penyerang menyetel sandi baru, lalu pemilik aslinya terkunci dari akun
+ * sendiri.
+ *
+ * Memakai `limiterMasuk`, limiter yang sama dengan halaman masuk, karena
+ * endpoint ini memverifikasi kredensial yang sama dan karena itu bisa
+ * dipakai menebak sandi dengan cara yang sama persis.
+ */
+meRouter.put(
+  "/kata-sandi",
+  limiterMasuk,
+  wajibMasuk,
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { kataSandiLama, kataSandiBaru } = skemaUbahSandi.parse(req.body);
+      const penggunaId = req.pengguna!.id;
+
+      const pengguna = await prisma.pengguna.findUnique({
+        where: { id: penggunaId },
+        select: { id: true, kataSandiHash: true },
+      });
+
+      if (!pengguna) {
+        throw notFound("Pengguna tidak ditemukan.");
+      }
+
+      const cocok = await sandiCocok(pengguna.kataSandiHash, kataSandiLama);
+      if (!cocok) {
+        throw unauthorized("Kata sandi lama salah.", "SANDI_LAMA_SALAH");
+      }
+
+      /*
+       * Sandi baru yang sama dengan sandi lama ditolak.
+       *
+       * Bukan kerewelan: orang mengubah sandi justru ketika mencurigai sandi
+       * lamanya sudah diketahui orang lain. Menerima sandi yang sama
+       * mengembalikan jawaban "berhasil" untuk tindakan yang tidak mengubah
+       * apa pun — dan menutup satu-satunya kesempatan memberi tahu bahwa
+       * akunnya masih persis sama rentannya.
+       */
+      if (await sandiCocok(pengguna.kataSandiHash, kataSandiBaru)) {
+        throw badRequest(
+          "SANDI_SAMA",
+          "Kata sandi baru harus berbeda dari kata sandi lama.",
+        );
+      }
+
+      const sandiHash = await hashSandi(kataSandiBaru);
+
+      /*
+       * Sesi LAIN dicabut; sesi yang sedang dipakai dibiarkan hidup.
+       *
+       * `/atur-ulang` mencabut semuanya, dan itu benar di sana — orangnya
+       * datang dari tautan email tanpa sesi aktif, jadi tidak ada yang
+       * hilang. Di sini sebaliknya: mencabut semua akan melempar keluar
+       * orang yang baru saja berhasil mengganti sandinya, dan terlempar
+       * tepat setelah menekan tombol terbaca sebagai kegagalan, bukan
+       * keberhasilan.
+       *
+       * Yang lain tetap harus dicabut. Alasan paling umum mengganti sandi
+       * adalah dugaan sandi lama sudah bocor, dan membiarkan sesi orang lain
+       * tetap hidup membuat penggantian itu tidak menghasilkan apa-apa.
+       *
+       * Kalau cookie refresh tidak ada — klien yang hanya memakai kepala
+       * Bearer, misalnya alat uji — sesi sekarang tidak bisa dikenali, dan
+       * SEMUA dicabut. Memilih yang lebih aman saat identitas sesi tidak
+       * pasti, bukan membiarkan semuanya lolos.
+       */
+      const refreshSekarang = ambilRefreshToken(req);
+      const hashSekarang = refreshSekarang
+        ? hashRefresh(refreshSekarang)
+        : null;
+
+      await prisma.$transaction([
+        prisma.pengguna.update({
+          where: { id: pengguna.id },
+          data: { kataSandiHash: sandiHash },
+        }),
+        prisma.sesi.updateMany({
+          where: {
+            penggunaId: pengguna.id,
+            dicabutPada: null,
+            ...(hashSekarang ? { refreshHash: { not: hashSekarang } } : {}),
+          },
+          data: { dicabutPada: new Date() },
+        }),
+      ]);
+
+      res.status(200).json({ ok: true });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+/* ── 13. DELETE /api/me/sesi/:id ────────────────────────────────────── */
 
 meRouter.delete("/sesi/:id", wajibMasuk, async (req: Request, res: Response, next: NextFunction) => {
   try {

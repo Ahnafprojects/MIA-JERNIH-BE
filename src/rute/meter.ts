@@ -8,6 +8,7 @@ import rateLimit from "express-rate-limit";
 import pkg from "@prisma/client";
 const { StatusRelay } = pkg;
 import { prisma } from "../lib/prisma.js";
+import { periksaIsiOtomatis } from "../lib/isi-otomatis.js";
 import { badRequest, forbidden, notFound } from "../lib/errors.js";
 import { wajibMasuk } from "../middleware/sesi.js";
 import { log } from "../lib/log.js";
@@ -148,6 +149,20 @@ meterRouter.get("/:id/live", async (req: Request, res: Response, next: NextFunct
       where: { meterId: meter.id },
       orderBy: { ts: "desc" },
     });
+
+    /*
+     * Pemeriksaan isi otomatis ditempelkan di sini karena backend ini tidak
+     * punya jalur masuk telemetri: `saldoL` hanya berubah saat token
+     * ditukarkan, jadi tidak ada momen "saldo baru saja turun" yang bisa
+     * dipakai sebagai pemicu. Jalur baca inilah yang paling sering melihat
+     * saldo terbaru — portal memanggilnya tiap lima detik.
+     *
+     * TANPA `await`: pembelian tidak boleh menahan tampilan saldo milik
+     * warga, dan kegagalannya tidak boleh menggagalkan permintaan ini.
+     * Pengamanan terhadap pemanggilan berulang ada di dalam fungsinya
+     * (jeda tersimpan di basis data + kuncian per meter).
+     */
+    void periksaIsiOtomatis(meter.id);
 
     res.status(200).json({
       meterId: meter.id,

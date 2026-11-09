@@ -233,6 +233,33 @@ model Meter {
   /// Ambang alarm firmware, dalam liter.
   ambangPeringatanL Decimal  @default(5) @db.Decimal(10, 2)
   ambangKritisL     Decimal  @default(2) @db.Decimal(10, 2)
+
+  /// Isi ulang otomatis saat saldo menipis.
+  ///
+  /// Disimpan PER METER, bukan per pengguna: satu akun bisa memegang
+  /// beberapa sambungan (rumah dan kos), dan keduanya tidak punya pola
+  /// pemakaian yang sama. Ambang serta paket yang masuk akal untuk satu
+  /// rumah tidak pernah otomatis masuk akal untuk yang lain.
+  ///
+  /// Ambangnya JAUH di atas alarm firmware (≤5 L) dengan sengaja. Alarm
+  /// firmware berbunyi ketika air hampir habis — saat itu pembelian baru
+  /// sudah terlambat, karena token masih harus diterbitkan, dikirim, lalu
+  /// ditukarkan ke meter. Seratus liter memberi jeda beberapa hari sebelum
+  /// warga mendengar bunyi apa pun.
+  isiOtomatisAktif   Boolean @default(false)
+  isiOtomatisAmbangL Int     @default(100)
+  isiOtomatisVolumeL Int     @default(1000)
+  /// Metode bayar yang dipakai pembelian otomatis.
+  ///
+  /// Disimpan, bukan dipatok ke QRIS: pembelian otomatis tetap sebuah
+  /// transaksi yang muncul di riwayat warga, dan riwayat yang menulis
+  /// metode yang tidak pernah dipilih siapa pun akan mustahil dicocokkan
+  /// dengan mutasi rekening mana pun.
+  isiOtomatisMetode  MetodeBayar @default(QRIS)
+  /// Waktu pembelian otomatis terakhir. Dipakai sebagai jeda: tanpa ini,
+  /// saldo yang tetap di bawah ambang (karena token belum ditukarkan ke
+  /// meter) akan memicu pembelian baru pada setiap pemeriksaan.
+  isiOtomatisTerakhir DateTime?
   kalibrasi         Decimal  @default(6.55) @db.Decimal(10, 2)
   panjangToken      Int      @default(10)
   versiFirmware     String   @default("")
