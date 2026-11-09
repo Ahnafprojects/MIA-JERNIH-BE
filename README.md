@@ -18,7 +18,7 @@ Tiga sub-tema yang dipilih, beserta bagian yang mewujudkannya:
 | --- | --- |
 | API produksi | <https://api.jernih.biz.id> ([health check](https://api.jernih.biz.id/health)) |
 | Frontend | <https://jernih.biz.id> ([repositori](https://github.com/Ahnafprojects/MIA-JERNIH-FE)) |
-| Pengujian | 75 tes dalam 15 suite, seluruhnya lolos |
+| Pengujian | 179 tes dalam 24 berkas, seluruhnya lolos |
 
 ## Daftar isi
 
@@ -33,9 +33,10 @@ Tiga sub-tema yang dipilih, beserta bagian yang mewujudkannya:
 9. [Neraca air](#neraca-air)
 10. [Keamanan](#keamanan)
 11. [WebSocket](#websocket)
-12. [Format jawaban galat](#format-jawaban-galat)
-13. [Penyebaran](#penyebaran)
-14. [Struktur direktori](#struktur-direktori)
+12. [Layanan notifikasi](#layanan-notifikasi)
+13. [Format jawaban galat](#format-jawaban-galat)
+14. [Penyebaran](#penyebaran)
+15. [Struktur direktori](#struktur-direktori)
 
 Pemecahan masalah saat pengembangan ada di
 [`docs/CATATAN-TEKNIS.md`](docs/CATATAN-TEKNIS.md).
@@ -187,7 +188,7 @@ Backend sudah selesai dan berjalan di produksi. Seluruh endpoint yang dibutuhkan
 | Selesai | Endpoint publik: status layanan, lacak, kinerja, statistik, neraca air, unduhan, peta |
 | Selesai | WebSocket dengan isolasi kamar dan pemeriksaan hak akses |
 | Selesai | Penyebaran otomatis lewat GitHub Actions dan Cloudflare Tunnel |
-| Selesai | 75 tes integrasi, `tsc` dan `eslint` bersih |
+| Selesai | 179 tes integrasi, `tsc` dan `eslint` bersih |
 | Berjalan | Pemantauan dan pencatatan terstruktur di produksi |
 
 ## Akun demo
@@ -259,6 +260,7 @@ Seluruh rute berawalan `/api`.
 | `GET /api/publik/panduan-lacak` | Janji waktu tiap kategori, tahapan penanganan, kanal lapor, nomor contoh |
 | `GET /api/publik/riwayat-zona` | Riwayat gangguan tiap zona |
 | `GET /api/publik/peta` | GeoJSON poligon zona dan rekapitulasi gangguan |
+| `GET /api/publik/titik-kebocoran?hari=90` | Sebaran kebocoran pipa sebagai petak. Koordinat dibulatkan ke sekitar 110 m dan aduan sepetak digabung, sehingga titiknya tidak menunjuk rumah pelapor. Nomor tiket tidak pernah ikut keluar |
 
 Parameter `rentang` pada `/neraca-air` dan `/unduh` hanya menerima 7, 30, atau 90. Nilai lain jatuh ke 30 tanpa menjadi galat. Rincian neraca air berasal dari audit triwulanan, sehingga menyajikannya untuk rentang tiga hari akan terbaca seolah komponennya diukur harian.
 
@@ -274,6 +276,11 @@ Parameter `rentang` pada `/neraca-air` dan `/unduh` hanya menerima 7, 30, atau 9
 | `POST /api/auth/keluar` | Mencabut sesi aktif |
 | `POST /api/auth/lupa`, `POST /api/auth/atur-ulang` | Atur ulang kata sandi dengan token 32 byte |
 | `GET /api/me`, `PATCH /api/me` | Profil pengguna aktif |
+| `GET /api/me/notifikasi` | Keadaan saluran kabar milik warga |
+| `PUT /api/me/notifikasi/whatsapp` | Simpan nomor dan nyalakan. Menuntut `setuju: true` secara eksplisit |
+| `DELETE /api/me/notifikasi/whatsapp` | Berhenti. Nomornya ikut dihapus, bukan sekadar dimatikan |
+| `POST /api/me/notifikasi/telegram` | Tukar kode enam digit dari bot menjadi tautan |
+| `DELETE /api/me/notifikasi/telegram` | Lepas tautan Telegram |
 
 ### Meter dan telemetri
 
@@ -410,6 +417,44 @@ Hak akses diperiksa saat upgrade koneksi, bukan saat pengiriman:
 
 Server mengirim `ping` setiap 30 detik. Klien yang tidak membalas `pong` akan diputus.
 
+## Layanan notifikasi
+
+Proses TERPISAH dari API, berada di `services/notifikasi/` dengan `Dockerfile` dan `package.json` sendiri, dan dijalankan sebagai layanan kedua di `docker-compose`. Ia mengirim WhatsApp lewat Baileys dan Telegram lewat Bot API resmi.
+
+Dipisah dengan sengaja. Soket WhatsApp memegang sesi yang hidup terus dan bisa menggantung puluhan detik saat menyambung ulang. Kalau ia tinggal di dalam proses API, setiap penyambungan ulangnya ikut menahan permintaan HTTP milik warga.
+
+| | |
+| --- | --- |
+| Alamat | `127.0.0.1:5310`, tidak pernah diekspos ke internet |
+| Titipan pesan | `POST /kirim`, membalas `202` setelah dititipkan |
+| Kesehatan | `GET /sehat` tanpa rahasia, `GET /status` dengan rahasia |
+| Pemasangan WhatsApp | `GET /qr.txt` |
+
+**Portnya tidak boleh diekspos.** Endpoint `/qr` di dalamnya memasangkan PERANGKAT BARU pada nomor WhatsApp tim, dan perangkat itu bisa membaca serta mengirim pesan atas nama nomor tersebut. Tidak ada entri cloudflared untuknya, dan jangan pernah ditambahkan.
+
+**Volume `wa-sesi` wajib ada.** Kredensial pemasangan WhatsApp tinggal di sana. Tanpa volume, setiap penyebaran menghapusnya dan menuntut pemindaian QR ulang dari ponsel pemilik nomor, padahal penyebaran terjadi pada setiap push ke `main`.
+
+**Pemasangan dilakukan lewat `GET /qr.txt`.** Keluarannya blok teks yang bisa diambil dengan `curl -H` lalu ditempel ke terminal mana pun, dan QR-nya tetap terpindai dari layar. Versi HTML di `/qr` tidak bisa dibuka peramban, sebab peramban tidak dapat mengirim header rahasia.
+
+**Antrean punya batas waktu 30 detik per pengiriman.** Tanpa itu, satu permintaan yang menggantung menahan seluruh antrean tanpa batas, tanpa galat dan tanpa satu baris log pun. Sudah terjadi di produksi: tiga pesan dititipkan, satu tersangkut, dan `/status` menunjukkan antrean yang tidak bergerak dengan nol baris "ditunda" maupun "terkirim".
+
+**Kunci idempotensi diturunkan dari kejadiannya**, misalnya `tiket:LP-2026-11-0027:SELESAI`, bukan dari waktu pemanggilan. Dengan kunci berbasis waktu, percobaan ulang setelah jaringan putus akan mengirim pesan kedua untuk satu kejadian yang sama.
+
+**Jangan pernah mencetak `NOTIFIKASI_SECRET` atau `TELEGRAM_BOT_TOKEN`** ke log, ke terminal, maupun ke berkas apa pun. Repositori ini publik.
+
+### Pembagian saluran
+
+| Kejadian | Email | WhatsApp | Telegram |
+| --- | --- | --- | --- |
+| Status tiket berubah | ya | ya | ya |
+| Pembelian lunas | ya | ya | ya |
+| Saldo menipis | ya | ya | ya |
+| Siaran pengumuman | ya | tidak | ya |
+
+WhatsApp sengaja tidak dipakai untuk siaran massal. Pengirimnya menahan laju 2,5 detik per pesan agar tidak terbaca sebagai robot, sehingga ratusan pelanggan berarti belasan menit pengiriman beruntun dari satu nomor bisnis sungguhan. Channel Telegram menyampaikan hal yang sama dalam satu kiriman.
+
+Warga mendaftarkan nomornya sendiri lewat lima endpoint di bawah `/api/me/notifikasi`. Kolom `Pengguna.waOptIn` bawaannya `false` dan hanya warga yang boleh menyalakannya. Kolom `Pengguna.telegramChatId` hanya bisa terisi setelah warga menekan Start di bot, sehingga keberadaannya sudah merupakan persetujuan.
+
 ## Format jawaban galat
 
 Seluruh galat memakai bentuk yang sama, dengan pesan berbahasa Indonesia yang siap ditampilkan di antarmuka.
@@ -458,11 +503,17 @@ docker compose exec -T app sh -c "npx prisma migrate deploy" < /dev/null
 docker compose exec -T app sh -c "node dist/prisma/isi-neraca.js" < /dev/null
 ```
 
-Tiga detail yang mahal dipelajari.
+Empat detail yang mahal dipelajari.
 
 **`< /dev/null` wajib pada setiap baris `exec`.** Badan skrip dikirim ke server lewat stdin ssh. `docker compose exec -T` mewarisi stdin yang sama dan menelan sisa skrip sebagai masukan untuk perintah di dalam kontainer. Selama hanya ada satu baris `exec` dan ia yang terakhir, tidak ada yang hilang. Begitu baris kedua ditambahkan, baris itu tidak pernah dijalankan. Yang berbahaya, tidak ada yang gagal: `set -e` tidak melihat galat, log berhenti sesudah migrasi, dan job tetap hijau. Satu-satunya tanda adalah tabel yang kosong di produksi.
 
 **`node dist/...`, bukan `npx tsx`.** Image produksi menjalankan `npm prune --omit=dev`, sehingga `tsx` tidak tersedia di sana. Direktori `prisma` termasuk dalam `tsconfig.json`, jadi `npm run build` sudah memancarkan `dist/prisma/isi-neraca.js`.
+
+**`docker-compose.yml` yang HIDUP di server tidak pernah ditimpa.** Alur deploy hanya menyalinnya dari `docker-compose.example.yml` kalau berkasnya belum ada. Jadi menambah variabel lingkungan atau mengubah jalur `build:` di berkas contoh TIDAK cukup; berkas yang hidup di `/home/jernih/app/docker-compose.yml` harus diperbaiki dengan tangan.
+
+Ini sudah dua kali memakan korban. Pertama `TOKEN_ENC_KEY` yang terpasang rapi di `.env` tetapi tidak pernah sampai ke dalam kontainer, sebab blok `environment:` meneruskan variabel satu per satu. Kedua saat direktori layanan notifikasi dipindahkan ke `services/`, yang membuat `docker compose up --build` gagal dengan `path not found`.
+
+Yang memperburuk keduanya: `docker compose config` LOLOS pada berkas yang basi. Galatnya baru muncul pada tahap build, dan karena skrip deploy memakai `set -e`, kegagalan itu mematikan seluruh langkah sesudahnya termasuk `prisma migrate deploy`. Jadi yang rusak bukan hanya satu layanan melainkan seluruh pipeline.
 
 **`isi-neraca.ts`, bukan `seed.ts`.** Seed mengosongkan seluruh tabel terlebih dahulu dan akan menghapus akun, tiket, serta transaksi yang sudah ada. Skrip pengisi hanya menulis kalau `NeracaHarian` masih kosong, dan berhenti tanpa menyentuh apa pun kalau sudah terisi.
 
@@ -499,7 +550,7 @@ MIA-JERNIH-BE/
 │   ├── env.ts                  Validasi konfigurasi, gagal saat start
 │   ├── server.ts               Entrypoint HTTP dan graceful shutdown
 │   └── ws.ts                   Manajer WebSocket dan broadcast kamar
-├── tests/                      15 suite tes integrasi
+├── tests/                      24 berkas tes integrasi
 ├── Dockerfile                  Build multi-stage
 ├── docker-compose.example.yml  Compose untuk pengembangan dan basis data uji
 └── tsconfig.json
