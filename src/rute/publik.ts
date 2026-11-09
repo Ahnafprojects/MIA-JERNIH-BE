@@ -26,6 +26,12 @@ import {
   keJson,
   namaBerkas,
 } from "../lib/unduh.js";
+import {
+  KATEGORI_PUBLIK,
+  SISI_PETAK_DERAJAT,
+  bacaRentangHari,
+  ringkasTitikKebocoran,
+} from "../lib/titik-kebocoran.js";
 
 export const publikRouter: Router = Router();
 
@@ -797,6 +803,75 @@ publikRouter.get("/peta", async (_req: Request, res: Response, next: NextFunctio
     next(err);
   }
 });
+
+/* ── 5b. GET /api/publik/titik-kebocoran ─────────────────────────────── */
+
+/**
+ * Sebaran kebocoran pipa sebagai petak, untuk digambar di atas peta zona.
+ *
+ * Pembatas privasinya ditegakkan di `src/lib/titik-kebocoran.ts`, bukan di
+ * sini — baca komentar kepala berkas itu sebelum mengubah apa pun. Ringkasnya:
+ * hanya kategori "kebocoran pipa", koordinat dibulatkan ke petak ~110 m, dan
+ * aduan sepetak digabung jadi satu titik.
+ *
+ * `select` di bawah sengaja MENYEBUT kolomnya satu per satu. Tanpa `select`,
+ * menambah kolom di `model Tiket` kelak akan diam-diam ikut terbawa ke
+ * endpoint publik ini — dan kolom yang paling mungkin ditambahkan pada tabel
+ * aduan justru yang paling tidak boleh keluar.
+ */
+publikRouter.get(
+  "/titik-kebocoran",
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const rentangHari = bacaRentangHari(req.query.hari);
+      const sekarang = new Date();
+      const batasWaktu = new Date(
+        sekarang.getTime() - rentangHari * 24 * 60 * 60 * 1000,
+      );
+
+      const tiketList = await prisma.tiket.findMany({
+        where: {
+          /* Abai huruf besar-kecil, dan itu BUKAN kerapian.
+             Kolom `kategori` menyimpan apa adanya yang dikirim klien;
+             terukur di basis data ada "kebocoran pipa" (50 baris) DAN
+             "Kebocoran pipa" (1 baris). `hitungSlaJatuhTempo()` sudah
+             me-lowercase saat mencari jam SLA, jadi keduanya dianggap satu
+             kategori di tempat lain. Pencocokan persis di sini akan
+             menjatuhkan baris yang kapitalisasinya berbeda tanpa gejala
+             apa pun selain titik yang hilang dari peta. */
+          kategori: { equals: KATEGORI_PUBLIK, mode: "insensitive" },
+          dibuatPada: { gte: batasWaktu },
+          lat: { not: null },
+          lng: { not: null },
+        },
+        select: {
+          lat: true,
+          lng: true,
+          status: true,
+          slaJatuhTempo: true,
+          selesaiPada: true,
+          dibuatPada: true,
+        },
+      });
+
+      const petak = ringkasTitikKebocoran(tiketList, sekarang);
+
+      res.status(200).json({
+        rentangHari,
+        /* Sisi petak ikut dikirim supaya peta bisa menggambar lingkaran
+           seukuran ketidakpastiannya, bukan titik setajam jarum yang
+           menyiratkan presisi yang memang tidak ada. */
+        sisiPetakDerajat: SISI_PETAK_DERAJAT,
+        kategori: KATEGORI_PUBLIK,
+        jumlahPetak: petak.length,
+        jumlahAduan: petak.reduce((n, p) => n + p.jumlah, 0),
+        petak,
+      });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
 
 /* ── 6. GET /api/publik/panduan-lacak ────────────────────────────────── */
 
