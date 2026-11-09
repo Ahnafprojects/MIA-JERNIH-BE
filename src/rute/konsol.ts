@@ -504,7 +504,34 @@ konsolRouter.get("/perangkat", async (_req: Request, res: Response, next: NextFu
       { key: "totalPerangkat", label: "Total Meter", value: totalMeter },
       { key: "online", label: "Perangkat Online", value: onlineCount, tone: "positive" as const },
       { key: "offline", label: "Perangkat Offline", value: offlineCount, tone: "warning" as const },
-      { key: "kesehatanJaringan", label: "Kesehatan Jaringan", value: 98.4, unit: "%" },
+      {
+        key: "kesehatanJaringan",
+        label: "Kesehatan Jaringan",
+        /*
+         * DIHITUNG, bukan ditulis mati.
+         *
+         * Nilainya dulu literal `98.4`, duduk persis di sebelah `onlineCount`
+         * dan `offlineCount` yang justru dihitung dari basis data. Akibatnya
+         * satu kartu menulis 98% sementara dua kartu di sampingnya memberi
+         * angka yang bisa dibagi sendiri oleh pembacanya dan menghasilkan
+         * jawaban berbeda. Pada konsol yang seluruh gagasannya transparansi,
+         * angka yang membantah tetangganya sendiri adalah cacat yang paling
+         * mahal — dan yang paling mudah ditemukan orang luar.
+         *
+         * Ini kelas cacat yang sama dengan `volumeHariIniM3 = 142.5` dan
+         * `nrwRataPct = 14.8` yang sudah dibereskan di dashboard.
+         *
+         * `null` saat belum ada meter sama sekali, BUKAN 0. Nol persen
+         * berarti seluruh jaringan mati, dan itu pernyataan yang sangat
+         * berbeda dari "belum ada yang bisa diukur". Antarmuka menampilkan
+         * `null` sebagai tanda hubung.
+         */
+        value:
+          totalMeter > 0
+            ? Math.round((onlineCount / totalMeter) * 1000) / 10
+            : null,
+        unit: "%",
+      },
     ];
 
     const perluPerhatian = rows
