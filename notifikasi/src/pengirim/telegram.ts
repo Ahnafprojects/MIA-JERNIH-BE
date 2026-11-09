@@ -137,14 +137,32 @@ export class PengirimTelegram implements Pengirim {
       };
     }
 
-    const chatId = Number(tujuan);
-    if (!Number.isFinite(chatId)) {
+    /*
+     * Dua bentuk tujuan diterima, dan keduanya memang dipakai:
+     *
+     *   - ANGKA   → chat id pribadi warga, hasil menukar kode penghubung.
+     *   - @nama   → username channel pengumuman, mis. `@JernihInfo`.
+     *
+     * Versi pertama hanya menerima angka, dan akibatnya seluruh pengumuman
+     * ke channel ditolak dengan "harus chat id berupa angka" — padahal
+     * channel memang tidak punya chat id numerik yang bisa ditebak, dan
+     * username-nya justru bentuk resmi yang dianjurkan Bot API.
+     *
+     * Keduanya dibedakan di sini, bukan di pemanggil, supaya pemanggil tidak
+     * perlu tahu bedanya sama sekali.
+     */
+    const tujuanRapi = tujuan.trim();
+    const keChannel = tujuanRapi.startsWith("@");
+
+    if (!keChannel && !Number.isFinite(Number(tujuanRapi))) {
       return {
         terkirim: false,
         bolehUlang: false,
-        galat: `Tujuan Telegram harus chat id berupa angka, diterima "${tujuan}".`,
+        galat: `Tujuan Telegram harus chat id berupa angka atau username channel berawalan @, diterima "${tujuan}".`,
       };
     }
+
+    const chatId = keChannel ? tujuanRapi : Number(tujuanRapi);
 
     try {
       const hasil = await this.bot.api.sendMessage(chatId, pesan);
