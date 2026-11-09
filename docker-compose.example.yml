@@ -93,7 +93,7 @@ services:
   # yang bisa memindainya bisa membaca dan mengirim pesan atas nama nomor
   # itu.
   notifikasi:
-    build: ./notifikasi
+    build: ./services/notifikasi
     restart: unless-stopped
     ports:
       - "127.0.0.1:5310:5310"
