@@ -2,6 +2,7 @@ import { timingSafeEqual } from "node:crypto";
 
 import express from "express";
 import pino from "pino";
+import QRCode from "qrcode";
 import { z } from "zod";
 
 import { Antrean } from "./antrean.js";
@@ -98,6 +99,43 @@ app.get("/qr", butuhRahasia, async (_req, res) => {
        <script>setTimeout(() => location.reload(), 20000)</script>
      </body>`,
   );
+});
+
+/**
+ * QR yang sama, tetapi sebagai teks.
+ *
+ * Alasannya praktis dan sempat terlewat waktu merancang: `/qr` menuntut
+ * header rahasia, dan PERAMBAN TIDAK BISA mengirim header. Jadi walaupun
+ * portnya ditembuskan lewat SSH, halaman HTML itu tidak pernah bisa dibuka
+ * orang yang hendak memindai.
+ *
+ * Keluaran blok teks ini bisa diambil dengan `curl -H` lalu ditempel ke
+ * terminal mana pun, dan QR-nya tetap terpindai dari layar. Itu membuat
+ * pemasangan bisa dikerjakan sepenuhnya lewat SSH, tanpa menembuskan port
+ * dan tanpa melonggarkan syarat rahasianya.
+ */
+app.get("/qr.txt", butuhRahasia, async (_req, res) => {
+  const mentah = wa.qrMentah();
+  if (!mentah) {
+    res
+      .type("text/plain")
+      .status(404)
+      .send(
+        wa.siap()
+          ? "WhatsApp sudah tersambung, tidak ada QR yang perlu dipindai.\n"
+          : "QR belum tersedia. Tunggu beberapa detik lalu coba lagi.\n",
+      );
+    return;
+  }
+
+  // `errorCorrectionLevel: "L"` menekan jumlah modulnya, sehingga blok
+  // teksnya cukup kecil untuk muat di terminal tanpa membungkus baris. QR
+  // yang terbungkus tidak bisa dipindai sama sekali.
+  const teks = await QRCode.toString(mentah, {
+    type: "utf8",
+    errorCorrectionLevel: "L",
+  });
+  res.type("text/plain").send(teks);
 });
 
 const skemaKirim = z.object({
