@@ -105,6 +105,31 @@ model Pengguna {
   /// Ambang peringatan saldo milik pengguna (liter). Terpisah dari alarm
   /// meter yang diatur firmware (≤5 L, ≤2 L, 0 L).
   ambangPeringatanL Int     @default(100)
+
+  /// Nomor WhatsApp penerima kabar, disimpan dalam format `62...`.
+  ///
+  /// SENGAJA terpisah dari `hp`. Kolom `hp` adalah nomor kontak yang dipakai
+  /// petugas untuk menelepon warga; nomor itu belum tentu punya WhatsApp dan
+  /// pemiliknya belum tentu mau dikirimi pesan otomatis. Memakai ulang `hp`
+  /// sama dengan menganggap setiap warga yang pernah menuliskan nomor
+  /// telepon sudah setuju dikirimi notifikasi, padahal ia tidak pernah
+  /// menyetujuinya.
+  waNomor         String?
+  /// Persetujuan eksplisit menerima notifikasi WhatsApp.
+  ///
+  /// Bawaannya `false` dan hanya warga sendiri yang boleh menyalakannya.
+  /// Pengirimnya nomor bisnis sungguhan milik tim, dan mengirim ke orang
+  /// yang tidak memintanya adalah cara tercepat nomor itu dilaporkan sebagai
+  /// spam lalu diblokir WhatsApp.
+  waOptIn         Boolean   @default(false)
+
+  /// Chat id Telegram, hasil menukar kode yang diberikan bot.
+  ///
+  /// Telegram tidak mengizinkan bot mengirim pesan pertama, jadi kolom ini
+  /// hanya bisa terisi setelah warga sendiri menekan Start di bot. Artinya
+  /// keberadaan nilainya SUDAH merupakan persetujuan, sehingga tidak perlu
+  /// kolom opt-in terpisah seperti WhatsApp.
+  telegramChatId  String?
   dibuatPada      DateTime  @default(now())
   diubahPada      DateTime  @updatedAt
 
