@@ -63,6 +63,11 @@ export class PengirimWa implements Pengirim {
     return QRCode.toDataURL(this.qrTerakhir, { margin: 1, width: 320 });
   }
 
+  /** Muatan QR mentah, untuk digambar sebagai teks di terminal. */
+  qrMentah(): string | null {
+    return this.qrTerakhir;
+  }
+
   async mulai(): Promise<void> {
     if (this.menyambung) return;
     this.menyambung = true;
