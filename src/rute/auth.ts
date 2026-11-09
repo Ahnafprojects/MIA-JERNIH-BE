@@ -29,6 +29,11 @@ import {
   emailLupaSandi,
   kirimEmail,
 } from "../lib/email.js";
+import {
+  normalkanNomorWa,
+  notifikasiAktif,
+  tukarKodeTelegram,
+} from "../lib/notifikasi.js";
 import { env } from "../env.js";
 
 export const authRouter: Router = Router();
@@ -1022,3 +1027,214 @@ meRouter.delete("/sesi/:id", wajibMasuk, async (req: Request, res: Response, nex
     next(err);
   }
 });
+
+/* ── 14. Saluran notifikasi warga ───────────────────────────────────── */
+
+/**
+ * Pendaftaran saluran kabar: WhatsApp dan Telegram.
+ *
+ * ── Kenapa persetujuannya terpisah dan harus dinyalakan sendiri ───────
+ *
+ * Pengirim WhatsApp-nya nomor bisnis sungguhan milik tim, bukan nomor uji.
+ * Mengirim ke orang yang tidak memintanya adalah cara tercepat nomor itu
+ * dilaporkan sebagai spam lalu diblokir WhatsApp, dan yang hilang bukan satu
+ * pesan melainkan seluruh saluran untuk semua warga sekaligus.
+ *
+ * Karena itu `waOptIn` bawaannya `false`, hanya pemiliknya yang bisa
+ * menyalakannya, dan menyimpan nomor saja tidak cukup untuk mulai dikirimi.
+ *
+ * ── Kenapa tidak memakai ulang kolom `hp` ─────────────────────────────
+ *
+ * `hp` adalah nomor kontak supaya petugas bisa menelepon warga. Nomor itu
+ * belum tentu punya WhatsApp, dan pemiliknya tidak pernah menyetujui apa pun
+ * soal pesan otomatis saat menuliskannya. Memakainya ulang berarti
+ * menyimpulkan persetujuan dari data yang dikumpulkan untuk keperluan lain.
+ *
+ * ── Telegram tidak butuh kolom persetujuan ────────────────────────────
+ *
+ * Telegram melarang bot mengirim pesan pertama. `telegramChatId` hanya bisa
+ * terisi setelah warga sendiri menekan /start di bot, jadi keberadaan
+ * nilainya SUDAH merupakan persetujuan.
+ */
+
+const skemaSimpanWa = z.object({
+  nomor: z
+    .string()
+    .trim()
+    .min(1, "Nomor WhatsApp belum diisi.")
+    .max(32, "Nomor WhatsApp terlalu panjang."),
+  /*
+   * Persetujuan WAJIB dikirim eksplisit, dan `true` adalah satu-satunya nilai
+   * yang diterima di sini. Endpoint ini memang hanya untuk MENYALAKAN;
+   * mematikannya lewat DELETE di bawah. Dipisah supaya "menyimpan nomor" dan
+   * "setuju dikirimi" tidak pernah bisa tertukar karena satu bendera yang
+   * kelupaan diisi.
+   */
+  setuju: z.literal(true, {
+    message: "Persetujuan menerima pesan WhatsApp harus dicentang lebih dulu.",
+  }),
+});
+
+const skemaTautTelegram = z.object({
+  kode: z
+    .string()
+    .trim()
+    .regex(/^\d{6}$/, "Kode dari bot Telegram terdiri dari enam angka."),
+});
+
+/** Bentuk jawaban yang sama untuk GET dan sesudah setiap perubahan. */
+async function keadaanNotifikasi(penggunaId: string) {
+  const pengguna = await prisma.pengguna.findUnique({
+    where: { id: penggunaId },
+    select: { waNomor: true, waOptIn: true, telegramChatId: true },
+  });
+
+  if (!pengguna) {
+    throw notFound("Pengguna tidak ditemukan.");
+  }
+
+  return {
+    whatsapp: {
+      nomor: pengguna.waNomor,
+      aktif: pengguna.waOptIn,
+    },
+    telegram: {
+      /*
+       * `chatId` TIDAK dikirim ke klien, hanya keterangan tertaut atau tidak.
+       * Nilainya tidak berguna bagi antarmuka dan ia pengenal yang bisa
+       * dipakai mengirimi orangnya pesan dari bot mana pun yang
+       * mengetahuinya.
+       */
+      tertaut: pengguna.telegramChatId !== null,
+    },
+    /*
+     * Memberi tahu antarmuka apakah layanan pengirimnya memang terpasang.
+     * Tanpa ini, warga bisa menyalakan persetujuan di lingkungan yang tidak
+     * punya pengirim sama sekali, lalu menunggu kabar yang tidak akan pernah
+     * datang tanpa satu pun petunjuk kenapa.
+     */
+    layananSiap: notifikasiAktif(),
+  };
+}
+
+meRouter.get(
+  "/notifikasi",
+  wajibMasuk,
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      res.status(200).json(await keadaanNotifikasi(req.pengguna!.id));
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+meRouter.put(
+  "/notifikasi/whatsapp",
+  wajibMasuk,
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { nomor } = skemaSimpanWa.parse(req.body);
+
+      /*
+       * Dinormalkan ke bentuk `62...` sebelum disimpan. Warga menulis nomornya
+       * semaunya: `0851...`, `+62 851-...`, `62851...`. Kalau yang tersimpan
+       * apa adanya, nomor yang sama berakhir sebagai beberapa nilai berbeda,
+       * dan pemeriksaan apa pun yang membandingkannya tidak akan pernah cocok.
+       */
+      const normal = normalkanNomorWa(nomor);
+      if (!normal) {
+        throw badRequest(
+          "NOMOR_WA_TIDAK_SAH",
+          "Nomor WhatsApp tidak terbaca. Tulis dengan awalan 0 atau 62, contoh 081234567890.",
+        );
+      }
+
+      /*
+       * `req.pengguna!.id` dari sesi, BUKAN dari badan permintaan. Tidak ada
+       * id pengguna yang diterima dari klien di sini, jadi tidak ada jalan
+       * bagi siapa pun untuk mendaftarkan nomor atas nama orang lain.
+       */
+      await prisma.pengguna.update({
+        where: { id: req.pengguna!.id },
+        data: { waNomor: normal, waOptIn: true },
+      });
+
+      res.status(200).json(await keadaanNotifikasi(req.pengguna!.id));
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+/**
+ * Berhenti menerima WhatsApp.
+ *
+ * Nomornya ikut DIHAPUS, tidak hanya benderanya dimatikan. Orang yang
+ * mematikan kabar tidak sedang menitipkan nomornya untuk disimpan; menyimpan
+ * nomor yang persetujuannya sudah dicabut berarti menahan data yang tidak
+ * lagi ada dasarnya.
+ */
+meRouter.delete(
+  "/notifikasi/whatsapp",
+  wajibMasuk,
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      await prisma.pengguna.update({
+        where: { id: req.pengguna!.id },
+        data: { waNomor: null, waOptIn: false },
+      });
+
+      res.status(200).json(await keadaanNotifikasi(req.pengguna!.id));
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+meRouter.post(
+  "/notifikasi/telegram",
+  wajibMasuk,
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { kode } = skemaTautTelegram.parse(req.body);
+
+      const hasil = await tukarKodeTelegram(kode);
+      if (!hasil.ok) {
+        /*
+         * Pesan dari layanan notifikasi diteruskan apa adanya. Ia sudah
+         * membedakan kode kedaluwarsa dari layanan yang tidak bisa dihubungi,
+         * dan keduanya menuntut tindakan berbeda: yang pertama kirim /start
+         * lagi, yang kedua tunggu sebentar.
+         */
+        throw badRequest("TAUT_TELEGRAM_GAGAL", hasil.pesan);
+      }
+
+      await prisma.pengguna.update({
+        where: { id: req.pengguna!.id },
+        data: { telegramChatId: hasil.chatId },
+      });
+
+      res.status(200).json(await keadaanNotifikasi(req.pengguna!.id));
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+meRouter.delete(
+  "/notifikasi/telegram",
+  wajibMasuk,
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      await prisma.pengguna.update({
+        where: { id: req.pengguna!.id },
+        data: { telegramChatId: null },
+      });
+
+      res.status(200).json(await keadaanNotifikasi(req.pengguna!.id));
+    } catch (err) {
+      next(err);
+    }
+  },
+);
