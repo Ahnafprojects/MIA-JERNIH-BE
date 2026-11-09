@@ -498,6 +498,16 @@ model Broadcast {
   /// `kanal:{push,email}` hanya untuk BADAN permintaan POST.
   kanalPush   Boolean  @default(true)
   kanalEmail  Boolean  @default(false)
+  /// Kanal Telegram untuk pengumuman massal.
+  ///
+  /// Bawaannya false: operator harus memilihnya sadar, sama seperti email.
+  ///
+  /// WhatsApp SENGAJA tidak disediakan sebagai kanal broadcast. Pengirim
+  /// WhatsApp menahan laju 2,5 detik per pesan agar tidak terbaca sebagai
+  /// robot, sehingga 424 pelanggan berarti sekitar 18 menit pengiriman
+  /// beruntun dari satu nomor bisnis sungguhan — pola yang paling cepat
+  /// membuat nomor itu diblokir. Telegram memang disediakan untuk ini.
+  kanalTelegram Boolean @default(false)
   dijadwalkanPada DateTime?
   dikirimPada DateTime?
   penerima    Int      @default(0)

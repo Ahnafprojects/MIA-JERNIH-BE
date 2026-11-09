@@ -12,6 +12,9 @@ import { prisma } from "../lib/prisma.js";
 import { badRequest, forbidden, notFound } from "../lib/errors.js";
 import { wajibMasuk, wajibPeran } from "../middleware/sesi.js";
 import { emailTiketDiperbarui, kirimEmail } from "../lib/email.js";
+import { kabariWarga } from "../lib/notifikasi.js";
+import { kunciTiket, pesanTiketDiperbarui } from "../lib/pesan-notifikasi.js";
+import { env } from "../env.js";
 import {
   JENDELA_GANDA_JAM,
   bacaGpsExif,
@@ -622,6 +625,38 @@ adminTiketRouter.patch(
             statusBaru,
             catatan,
           ),
+        );
+      }
+
+      /*
+       * WhatsApp dan Telegram, ke saluran yang disetujui pelapor sendiri.
+       *
+       * TIDAK di-`await`, dan itu disengaja. Yang sedang menunggu balasan
+       * permintaan ini adalah petugas yang baru mengubah status, dan
+       * statusnya sudah tersimpan di atas. Menunggu pengiriman berarti
+       * petugas menatap pemuatan selama soket WhatsApp menyambung ulang,
+       * lalu melihat kegagalan untuk pekerjaan yang sebenarnya berhasil.
+       *
+       * `kabariWarga` sudah menelan galatnya sendiri dan tidak pernah
+       * melempar, jadi `void` di sini tidak menyembunyikan apa pun yang
+       * belum tercatat di log.
+       *
+       * Yang menentukan saluran mana yang dipakai adalah kolom `waOptIn`,
+       * `waNomor`, dan `telegramChatId` milik pelapor. Ketiganya ikut
+       * terbawa karena kuerinya memakai `include: { pelapor: true }`, yang
+       * mengambil seluruh kolom skalar.
+       */
+      if (tiket.pelapor) {
+        void kabariWarga(
+          tiket.pelapor,
+          kunciTiket(tiket.nomor, statusBaru),
+          pesanTiketDiperbarui({
+            nomorTiket: tiket.nomor,
+            statusLama,
+            statusBaru,
+            catatan,
+            appUrl: env().APP_URL,
+          }),
         );
       }
 

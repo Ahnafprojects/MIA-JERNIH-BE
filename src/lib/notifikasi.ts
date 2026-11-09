@@ -141,6 +141,39 @@ export async function kabariWarga(
 }
 
 /**
+ * Kirim HANYA lewat Telegram, tanpa menyentuh WhatsApp.
+ *
+ * ── Kenapa ada fungsi terpisah untuk ini ──────────────────────────────
+ *
+ * Dipakai broadcast pengumuman ke banyak warga sekaligus, dan di situ
+ * WhatsApp sengaja TIDAK dipakai.
+ *
+ * Alasannya bukan kerapian melainkan bertahan. Pengirim WhatsApp menahan
+ * laju 2,5 detik per pesan supaya tidak terbaca sebagai robot; untuk 424
+ * pelanggan itu berarti sekitar 18 menit pengiriman beruntun dari satu nomor
+ * bisnis sungguhan — pola yang paling cepat membuat nomor diblokir. Telegram
+ * tidak punya masalah itu: Bot API memang disediakan untuk ini, dan
+ * pengirimannya tidak membebani nomor siapa pun.
+ *
+ * Jadi pembagiannya: WhatsApp untuk kabar PER ORANG yang memang ia tunggu
+ * (status pengaduannya, token yang baru dibelinya, saldonya menipis),
+ * Telegram dan email untuk pengumuman ke banyak orang.
+ */
+export async function kabariLewatTelegram(
+  penerima: { telegramChatId?: string | null },
+  kunci: string,
+  pesan: string,
+): Promise<boolean> {
+  if (!penerima.telegramChatId) return false;
+  return titip({
+    kunci: `${kunci}:tg`,
+    saluran: "telegram",
+    tujuan: penerima.telegramChatId,
+    pesan,
+  });
+}
+
+/**
  * Tukar kode penghubung Telegram menjadi chat id.
  *
  * Berbeda dari `kabariWarga`, fungsi ini MEMANG ditunggu dan galatnya
