@@ -10,6 +10,7 @@ type Peran = (typeof Peran)[keyof typeof Peran];
 type StatusInsiden = (typeof StatusInsiden)[keyof typeof StatusInsiden];
 type StatusRelay = (typeof StatusRelay)[keyof typeof StatusRelay];
 import { prisma } from "../lib/prisma.js";
+import { namaAktor } from "../lib/audit.js";
 import { notFound } from "../lib/errors.js";
 import { wajibMasuk, wajibPeran } from "../middleware/sesi.js";
 import { emailBroadcast, kirimEmail } from "../lib/email.js";
@@ -611,7 +612,7 @@ konsolRouter.post("/pelanggan/:id/email", async (req: Request, res: Response, ne
     await prisma.auditLog.create({
       data: {
         aktorId: req.pengguna!.id,
-        aktorNama: req.pengguna!.id,
+        aktorNama: await namaAktor(req.pengguna!.id),
         aksi: "KIRIM_EMAIL_PELANGGAN",
         detail: `Kirim email ke ${pelanggan.email} dengan subjek: "${subjek}"`,
         tipe: "ADMIN",
@@ -746,7 +747,7 @@ konsolRouter.post(
       await prisma.auditLog.create({
         data: {
           aktorId: req.pengguna!.id,
-          aktorNama: req.pengguna!.id,
+          aktorNama: await namaAktor(req.pengguna!.id),
           aksi: "KONFIGURASI_METER",
           detail: `Memperbarui konfigurasi ${data.meterIds.length} meter (${data.meterIds.join(", ")}). Alasan: ${data.alasan}`,
           tipe: "METER",
@@ -1002,7 +1003,7 @@ konsolRouter.post("/broadcast", async (req: Request, res: Response, next: NextFu
     await prisma.auditLog.create({
       data: {
         aktorId: pembuatId,
-        aktorNama: req.pengguna!.id,
+        aktorNama: await namaAktor(req.pengguna!.id),
         aksi: "KIRIM_BROADCAST",
         detail: `Kirim siaran pengumuman "${data.judul}" kepada ${penerimaCount} warga.`,
         tipe: "BROADCAST",
@@ -1067,7 +1068,7 @@ konsolRouter.patch(
       await prisma.auditLog.create({
         data: {
           aktorId: req.pengguna!.id,
-          aktorNama: req.pengguna!.id,
+          aktorNama: await namaAktor(req.pengguna!.id),
           aksi: "UBAH_PERAN_TIM",
           detail: `Mengubah peran ${updated.nama} menjadi ${peranBaru}`,
           tipe: "TIM",
@@ -1124,7 +1125,7 @@ konsolRouter.patch(
       await prisma.auditLog.create({
         data: {
           aktorId: req.pengguna!.id,
-          aktorNama: req.pengguna!.id,
+          aktorNama: await namaAktor(req.pengguna!.id),
           aksi: "UBAH_TARIF",
           detail: `Mengubah tarif golongan ${updated.nama} menjadi Rp ${tarifBaru}/L. Alasan: ${alasan}`,
           tipe: "TARIF",
