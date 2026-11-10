@@ -83,6 +83,8 @@ beforeAll(async () => {
       serial: `JRN-UJI-${unik}`,
       penggunaId: warga.id,
       saldoL: 1234,
+      lat: -7.28917,
+      lng: 112.79583,
     },
   });
   idMeter = meter.id;
@@ -162,5 +164,71 @@ describe("GET /api/admin/pelanggan/:id", () => {
       .set("Authorization", `Bearer ${tokenOp}`);
 
     expect(res.status).toBe(404);
+  });
+});
+
+/**
+ * Medan yang dibaca halaman detail tetapi tidak pernah dikirim.
+ *
+ * `pakaiHarian`, `adaInsiden`, serta `lat`/`lng` pada meter sudah lama dibaca
+ * halaman `[id]/page.tsx`. Karena `useApi<T>` hanya MENGAKU bentuknya tanpa
+ * memeriksanya saat jalan, ketiadaan medan itu tidak memunculkan galat apa
+ * pun: nilainya `undefined`, lalu `.map()` pertama melempar dan seluruh
+ * halaman tergantikan layar "This page couldn't load".
+ *
+ * Kompilasi, lint, dan build semuanya lolos selama cacat ini ada. Jadi
+ * satu-satunya yang bisa menahannya kembali adalah uji yang memeriksa
+ * bentuk jawabannya, bukan tipenya.
+ */
+describe("bentuk jawaban detail pelanggan", () => {
+  const app = buatApp();
+
+  it("mengirim seluruh medan yang dibaca halaman detail", async () => {
+    const res = await request(app)
+      .get(`/api/admin/pelanggan/${idMeter}`)
+      .set("Authorization", `Bearer ${tokenOp}`);
+
+    expect(res.status).toBe(200);
+
+    for (const kunci of [
+      "detail",
+      "meter",
+      "riwayatToken",
+      "liniMasa",
+      "adaInsiden",
+      "pakaiHarian",
+    ]) {
+      expect(res.body, `medan \`${kunci}\` tidak dikirim`).toHaveProperty(
+        kunci,
+      );
+    }
+
+    expect(typeof res.body.adaInsiden).toBe("boolean");
+    expect(Array.isArray(res.body.pakaiHarian.labels)).toBe(true);
+    expect(Array.isArray(res.body.pakaiHarian.points)).toBe(true);
+    // Satu label berpasangan dengan satu titik; grafik tidak boleh pincang.
+    expect(res.body.pakaiHarian.points.length).toBe(
+      res.body.pakaiHarian.labels.length,
+    );
+  });
+
+  it("membawa koordinat meter untuk tautan ke peta jaringan", async () => {
+    const res = await request(app)
+      .get(`/api/admin/pelanggan/${idMeter}`)
+      .set("Authorization", `Bearer ${tokenOp}`);
+
+    expect(res.status).toBe(200);
+    const m = res.body.meter[0];
+    expect(m.lat).toBeCloseTo(-7.28917, 4);
+    expect(m.lng).toBeCloseTo(112.79583, 4);
+  });
+
+  it("menandai meter tanpa insiden terbuka sebagai tidak berinsiden", async () => {
+    const res = await request(app)
+      .get(`/api/admin/pelanggan/${idPengguna}`)
+      .set("Authorization", `Bearer ${tokenOp}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.adaInsiden).toBe(false);
   });
 });
