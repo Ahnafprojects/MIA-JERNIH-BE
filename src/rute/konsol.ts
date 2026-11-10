@@ -465,7 +465,13 @@ konsolRouter.get("/pelanggan/:id", async (req: Request, res: Response, next: Nex
      * datanya ada.
      */
     const idMeterMilikDia = pelanggan.meter.map((m) => m.id);
-    const awalJendela = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000);
+    /*
+     * 30 hari, bukan 14. Halaman detail melabeli kartunya "Pemakaian 30 hari
+     * terakhir" dan KPI di atasnya "Dari 30 hari terakhir", jadi jendela yang
+     * lebih pendek akan membuat labelnya berbohong tanpa gejala apa pun:
+     * grafiknya tetap tergambar, hanya isinya yang bukan yang dijanjikan.
+     */
+    const awalJendela = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
 
     const [riwayatToken, auditAktivitas, ember, insidenTerbuka] =
       await Promise.all([
