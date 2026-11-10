@@ -464,18 +464,63 @@ konsolRouter.get("/pelanggan/:id", async (req: Request, res: Response, next: Nex
      * menyimpulkan pelanggan itu tidak pernah membeli apa pun, padahal
      * datanya ada.
      */
-    const [riwayatToken, auditAktivitas] = await Promise.all([
-      prisma.token.findMany({
-        where: { pemilikId: pelanggan.id },
-        orderBy: { dibuatPada: "desc" },
-        take: 10,
-      }),
-      prisma.auditLog.findMany({
-        where: { aktorId: pelanggan.id },
-        orderBy: { ts: "desc" },
-        take: 10,
-      }),
-    ]);
+    const idMeterMilikDia = pelanggan.meter.map((m) => m.id);
+    const awalJendela = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000);
+
+    const [riwayatToken, auditAktivitas, ember, insidenTerbuka] =
+      await Promise.all([
+        prisma.token.findMany({
+          where: { pemilikId: pelanggan.id },
+          orderBy: { dibuatPada: "desc" },
+          take: 10,
+        }),
+        prisma.auditLog.findMany({
+          where: { aktorId: pelanggan.id },
+          orderBy: { ts: "desc" },
+          take: 10,
+        }),
+        /*
+         * Pemakaian harian untuk grafik di halaman detail.
+         *
+         * Halaman itu sudah lama menggambar grafik `pakaiHarian`, tetapi
+         * endpoint ini tidak pernah mengirimnya. Akibatnya nilainya
+         * `undefined` dan halamannya jatuh ke batas galat dengan pesan
+         * "This page couldn't load", tanpa petunjuk apa pun soal sebabnya.
+         */
+        idMeterMilikDia.length
+          ? prisma.emberPemakaian.findMany({
+              where: {
+                meterId: { in: idMeterMilikDia },
+                jam: { gte: awalJendela },
+              },
+              orderBy: { jam: "asc" },
+            })
+          : Promise.resolve([]),
+        idMeterMilikDia.length
+          ? prisma.insiden.count({
+              where: {
+                meterId: { in: idMeterMilikDia },
+                status: { in: [StatusInsiden.BARU, StatusInsiden.DITUGASKAN] },
+              },
+            })
+          : Promise.resolve(0),
+      ]);
+
+    /*
+     * Ember per jam dijumlahkan per HARI menurut waktu Asia/Jakarta.
+     *
+     * Memakai tanggal UTC akan menggeser batas harinya ke pukul 07.00 WIB,
+     * sehingga pemakaian dini hari warga masuk ke hari sebelumnya dan
+     * grafiknya tidak cocok dengan yang dilihat warga di portalnya sendiri.
+     */
+    const perHari = new Map<string, number>();
+    for (const e of ember) {
+      const kunci = e.jam.toLocaleDateString("en-CA", {
+        timeZone: "Asia/Jakarta",
+      });
+      perHari.set(kunci, (perHari.get(kunci) ?? 0) + Number(e.volumeL));
+    }
+    const hariTerurut = [...perHari.keys()].sort();
 
     res.status(200).json({
       detail: {
@@ -500,7 +545,19 @@ konsolRouter.get("/pelanggan/:id", async (req: Request, res: Response, next: Nex
         saklarOn: m.saklarOn,
         daring: m.daring,
         terakhirTerlihat: m.terakhirTerlihat?.toISOString() ?? null,
+        /* Koordinat dipakai halaman detail untuk menautkan ke peta jaringan.
+           `null` bila meternya memang belum dipetakan, bukan 0: nol derajat
+           adalah titik sungguhan di Teluk Guinea. */
+        lat: m.lat ?? null,
+        lng: m.lng ?? null,
       })),
+      adaInsiden: insidenTerbuka > 0,
+      pakaiHarian: {
+        labels: hariTerurut,
+        points: hariTerurut.map(
+          (h) => Math.round((perHari.get(h) ?? 0) * 100) / 100,
+        ),
+      },
       riwayatToken: riwayatToken.map((t) => ({
         id: t.id,
         kodeBertopeng: `${t.kodeAwalan} •••••`,
