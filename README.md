@@ -159,6 +159,9 @@ npm start
 | `PAYMENT_AUTO_SETTLE` | `true` | Pembelian langsung lunas tanpa menunggu webhook |
 | `DEMO_TOKEN_ENABLED` | `false` | Mengizinkan token peragaan `1111` dan `2222` |
 | `SEED_PASSWORD` | `admin123` | Kata sandi seluruh akun hasil seed |
+| `TOKEN_ENC_KEY` | kosong | Kunci enkripsi kode token. Tanpa ini kode token tidak bisa dibacakan ulang ke pemiliknya |
+| `NOTIFIKASI_URL`, `NOTIFIKASI_SECRET` | kosong | Alamat dan rahasia layanan notifikasi. Harus diisi berdua atau dikosongkan berdua; server menolak start kalau hanya satu yang terisi |
+| `TELEGRAM_CHANNEL` | kosong | Channel pengumuman, mis. `@JernihInfo`. Dipakai hanya untuk broadcast ke seluruh warga |
 
 Tiga variabel berbahaya kalau terbawa ke produksi:
 
@@ -289,6 +292,7 @@ Parameter `rentang` pada `/neraca-air` dan `/unduh` hanya menerima 7, 30, atau 9
 | `GET /api/meter/:id` | Detail meter dan representasi tampilan LCD |
 | `GET /api/meter/:id/live` | Debit terkini dan status saklar |
 | `GET /api/meter/:id/pemakaian` | Deret historis pemakaian |
+| `GET /api/meter/:id/log` | Dua puluh rekaman telemetri terakhir: saldo, debit, saklar, relay, buzzer |
 | `POST /api/meter/:id/relay` | Membuka atau menutup katup, dengan pemeriksaan saldo |
 | `POST /api/meter/hubungkan` | Klaim meter ke akun |
 | `DELETE /api/meter/:id/hubungkan` | Melepas meter dari akun |
@@ -299,6 +303,7 @@ Parameter `rentang` pada `/neraca-air` dan `/unduh` hanya menerima 7, 30, atau 9
 | --- | --- |
 | `POST /api/token/tukar` | Menukar kode token ke meter |
 | `GET /api/token/riwayat` | Riwayat token pengguna |
+| `GET /api/token/belum-dipakai` | Token aktif milik pengguna yang belum ditukarkan dan belum kedaluwarsa |
 | `GET /api/paket` | Katalog denominasi pembelian |
 | `POST /api/pembayaran/buat` | Membuat invoice |
 | `GET /api/pembayaran/:invoice` | Status pelunasan |
@@ -310,12 +315,30 @@ Parameter `rentang` pada `/neraca-air` dan `/unduh` hanya menerima 7, 30, atau 9
 | --- | --- |
 | `POST /api/tiket` | Membuat laporan, penomoran `LP-YYYY-MM-XXXX` |
 | `GET /api/tiket`, `GET /api/tiket/:id` | Riwayat dan kronologi penanganan |
+| `GET /api/tiket/lokasi-awal` | Titik awal peta pemilih lokasi aduan, dari koordinat meter milik pelapor |
 | `GET /api/notifikasi` | Kotak masuk notifikasi |
-| `PATCH /api/notifikasi/:id/baca`, `/baca-semua` | Menandai notifikasi terbaca |
+| `PATCH /api/notifikasi/:id/baca` | Menandai satu notifikasi terbaca |
+| `PATCH /api/notifikasi/baca-semua` | Menandai seluruh notifikasi terbaca dalam satu transaksi |
 
 ### Konsol staf
 
-Seluruhnya berawalan `/api/admin` dan menuntut peran selain warga: `dashboard`, `pelanggan`, `perangkat`, `analitik`, `audit`, `broadcast`, `pengaturan`, `peta`, `tiket`, `insiden`, dan `token/buat`.
+Seluruhnya berawalan `/api/admin` dan menuntut peran selain warga: `dashboard`, `pelanggan`, `perangkat`, `analitik`, `audit`, `broadcast`, `pengaturan`, `peta`, `tiket`, `insiden`, dan `token`.
+
+| Endpoint | Fungsi |
+| --- | --- |
+| `POST /api/admin/token` | Terbitkan token darurat (OPERATOR, SUPERVISOR). Kodenya dikembalikan ke petugas |
+| `POST /api/admin/konfigurasi-meter` | Ubah ambang alarm, kalibrasi, atau panjang token untuk beberapa meter sekaligus, dengan alasan wajib yang masuk audit log |
+| `POST /api/admin/insiden/deteksi-manual` | Jalankan deteksi anomali jaringan sekarang, tanpa menunggu jadwalnya |
+
+`POST /api/admin/broadcast` menyaring penerima menurut `target`:
+
+| `target` | Penerima |
+| --- | --- |
+| `SEMUA_WARGA` | Seluruh warga yang akunnya aktif |
+| `ZONA` | Warga di zona `zona`. Zonanya wajib |
+| `SALDO_RENDAH` | Warga yang memegang meter dengan saldo di bawah atau sama dengan ambang alarm meter itu (`Meter.ambangPeringatanL`, bawaan 5 L) |
+
+Tidak ada target tunggakan: produknya prabayar, sehingga tidak ada pemakaian yang bisa menunggak. `zona` boleh dipakai bersama target mana pun untuk mempersempitnya. Broadcast tanpa penerima ditolak dengan `BROADCAST_TANPA_PENERIMA`. `GET /api/admin/broadcast` ikut mengirim daftar zona untuk pilihan di formulir.
 
 ## Model data
 
@@ -438,6 +461,8 @@ Dipisah dengan sengaja. Soket WhatsApp memegang sesi yang hidup terus dan bisa m
 
 **Antrean punya batas waktu 30 detik per pengiriman.** Tanpa itu, satu permintaan yang menggantung menahan seluruh antrean tanpa batas, tanpa galat dan tanpa satu baris log pun. Sudah terjadi di produksi: tiga pesan dititipkan, satu tersangkut, dan `/status` menunjukkan antrean yang tidak bergerak dengan nol baris "ditunda" maupun "terkirim".
 
+**Antrean bertahan melewati restart.** Isinya disalin ke `/data/antrean.json` (volume yang sama dengan sesi WhatsApp) beserta kunci idempotensinya, lalu dibaca lagi saat layanan menyala. Sebelumnya antrean hanya hidup di memori, dan setiap penyebaran membuang pesan yang masih menunggu, termasuk struk berisi kode token.
+
 **Kunci idempotensi diturunkan dari kejadiannya**, misalnya `tiket:LP-2026-11-0027:SELESAI`, bukan dari waktu pemanggilan. Dengan kunci berbasis waktu, percobaan ulang setelah jaringan putus akan mengirim pesan kedua untuk satu kejadian yang sama.
 
 **Jangan pernah mencetak `NOTIFIKASI_SECRET` atau `TELEGRAM_BOT_TOKEN`** ke log, ke terminal, maupun ke berkas apa pun. Repositori ini publik.
@@ -448,10 +473,10 @@ Dipisah dengan sengaja. Soket WhatsApp memegang sesi yang hidup terus dan bisa m
 | --- | --- | --- | --- |
 | Status tiket berubah | ya | ya | ya |
 | Pembelian lunas | ya | ya | ya |
-| Saldo menipis | ya | ya | ya |
+| Saldo menipis, satu kali per meter per hari | ya, kecuali dimatikan di Pengaturan konsol | ya | ya |
 | Siaran pengumuman | ya | tidak | ya |
 
-WhatsApp sengaja tidak dipakai untuk siaran massal. Pengirimnya menahan laju 2,5 detik per pesan agar tidak terbaca sebagai robot, sehingga ratusan pelanggan berarti belasan menit pengiriman beruntun dari satu nomor bisnis sungguhan. Channel Telegram menyampaikan hal yang sama dalam satu kiriman.
+WhatsApp sengaja tidak dipakai untuk siaran massal. Pengirimnya menahan laju 2,5 detik per pesan agar tidak terbaca sebagai robot, sehingga ratusan pelanggan berarti belasan menit pengiriman beruntun dari satu nomor bisnis sungguhan. Telegram menerimanya per warga yang menautkan akun, dan, bila `TELEGRAM_CHANNEL` diisi, satu kiriman ke channel pengumuman untuk broadcast ke seluruh warga.
 
 Warga mendaftarkan nomornya sendiri lewat lima endpoint di bawah `/api/me/notifikasi`. Kolom `Pengguna.waOptIn` bawaannya `false` dan hanya warga yang boleh menyalakannya. Kolom `Pengguna.telegramChatId` hanya bisa terisi setelah warga menekan Start di bot, sehingga keberadaannya sudah merupakan persetujuan.
 
@@ -487,6 +512,8 @@ Nilai `code` bersifat stabil dan boleh dicocokkan di frontend. Nilai `message` d
 | Kelompok | Kode |
 | --- | --- |
 | Umum | `VALIDASI_GAGAL`, `NOT_FOUND`, `FORBIDDEN`, `CONFLICT`, `RATE_LIMIT`, `TERLALU_SERING`, `INTERNAL` |
+| Konsol | `PERAN_TIDAK_CUKUP`, `BROADCAST_TANPA_PENERIMA` |
+| Saluran kabar | `NOMOR_WA_TIDAK_SAH`, `TAUT_TELEGRAM_GAGAL` |
 | Sesi | `KREDENSIAL_SALAH`, `SESI_HABIS`, `SESI_DICABUT`, `SESI_TIDAK_VALID`, `AKUN_NONAKTIF`, `EMAIL_TERDAFTAR`, `EMAIL_BELUM_VERIFIKASI`, `PENGGUNA_TIDAK_DITEMUKAN` |
 | Kode email | `KODE_SALAH`, `KODE_KEDALUWARSA`, `KODE_SUDAH_DIPAKAI`, `KODE_TERKUNCI`, `KODE_TIDAK_DITEMUKAN`, `PERCOBAAN_TERKUNCI` |
 | Meter | `BUKAN_PEMILIK_METER`, `METER_SUDAH_TERHUBUNG`, `METER_TIDAK_COCOK`, `SALDO_HABIS`, `SAKLAR_OFF` |
