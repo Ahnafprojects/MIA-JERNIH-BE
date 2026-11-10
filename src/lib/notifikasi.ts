@@ -1,3 +1,4 @@
+import { env } from "../env.js";
 import { log } from "./log.js";
 
 /**
@@ -23,8 +24,13 @@ import { log } from "./log.js";
  * pesannya lebih cepat sampai, hanya membuat petugas menunggu lebih lama.
  */
 
-const URL_LAYANAN = process.env.NOTIFIKASI_URL?.trim() || "";
-const RAHASIA = process.env.NOTIFIKASI_SECRET?.trim() || "";
+/*
+ * Dibaca lewat `env()`, yang memvalidasinya saat server mulai: alamat yang
+ * salah bentuk, atau rahasia yang terisi tanpa alamatnya, menghentikan start
+ * alih-alih membuat setiap kabar hilang diam-diam.
+ */
+const URL_LAYANAN = (): string => env().NOTIFIKASI_URL;
+const RAHASIA = (): string => env().NOTIFIKASI_SECRET;
 
 /** Batas waktu pendek: ini titipan, bukan pekerjaan yang perlu ditunggu. */
 const BATAS_MS = 4000;
@@ -32,7 +38,7 @@ const BATAS_MS = 4000;
 export type SaluranNotifikasi = "wa" | "telegram";
 
 export function notifikasiAktif(): boolean {
-  return URL_LAYANAN !== "" && RAHASIA !== "";
+  return URL_LAYANAN() !== "" && RAHASIA() !== "";
 }
 
 interface Titipan {
@@ -61,11 +67,11 @@ async function titip(isi: Titipan): Promise<boolean> {
   const pembatal = AbortSignal.timeout(BATAS_MS);
 
   try {
-    const balasan = await fetch(`${URL_LAYANAN}/kirim`, {
+    const balasan = await fetch(`${URL_LAYANAN()}/kirim`, {
       method: "POST",
       headers: {
         "content-type": "application/json",
-        "x-notifikasi-secret": RAHASIA,
+        "x-notifikasi-secret": RAHASIA(),
       },
       body: JSON.stringify(isi),
       signal: pembatal,
@@ -174,6 +180,27 @@ export async function kabariLewatTelegram(
 }
 
 /**
+ * Kirim satu kali ke channel Telegram pengumuman (`TELEGRAM_CHANNEL`).
+ *
+ * Satu kiriman ke channel menjangkau semua pengikutnya, termasuk warga yang
+ * belum menautkan akun Telegram ke portal. Mengembalikan `false` tanpa
+ * mencoba apa pun kalau channel tidak dikonfigurasi.
+ */
+export async function kabariChannelTelegram(
+  kunci: string,
+  pesan: string,
+): Promise<boolean> {
+  const channel = env().TELEGRAM_CHANNEL;
+  if (!channel) return false;
+  return titip({
+    kunci: `${kunci}:channel`,
+    saluran: "telegram",
+    tujuan: channel,
+    pesan,
+  });
+}
+
+/**
  * Tukar kode penghubung Telegram menjadi chat id.
  *
  * Berbeda dari `kabariWarga`, fungsi ini MEMANG ditunggu dan galatnya
@@ -188,11 +215,11 @@ export async function tukarKodeTelegram(
   }
 
   try {
-    const balasan = await fetch(`${URL_LAYANAN}/telegram/tukar-kode`, {
+    const balasan = await fetch(`${URL_LAYANAN()}/telegram/tukar-kode`, {
       method: "POST",
       headers: {
         "content-type": "application/json",
-        "x-notifikasi-secret": RAHASIA,
+        "x-notifikasi-secret": RAHASIA(),
       },
       body: JSON.stringify({ kode }),
       signal: AbortSignal.timeout(BATAS_MS),

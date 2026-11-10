@@ -77,6 +77,9 @@ services:
       # bawah; resolusinya lewat jaringan Docker, bukan lewat internet.
       NOTIFIKASI_URL: ${NOTIFIKASI_URL:-http://notifikasi:5310}
       NOTIFIKASI_SECRET: ${NOTIFIKASI_SECRET:-}
+      # Channel pengumuman, mis. @JernihInfo. Kosongkan bila tidak ada.
+      # Bot harus dijadikan admin channel itu agar boleh mengirim.
+      TELEGRAM_CHANNEL: ${TELEGRAM_CHANNEL:-}
     depends_on:
       - db
 
@@ -109,6 +112,9 @@ services:
       WA_AKTIF: ${WA_AKTIF:-true}
       WA_SESI_DIR: /data/wa-sesi
       JEDA_KIRIM_MS: ${JEDA_KIRIM_MS:-2500}
+      # Salinan antrean pesan, di volume yang sama dengan sesi WhatsApp,
+      # supaya pesan yang belum terkirim bertahan melewati penyebaran.
+      ANTREAN_BERKAS: /data/antrean.json
       LOG_LEVEL: ${LOG_LEVEL:-info}
     volumes:
       # WAJIB. Kredensial pemasangan WhatsApp tinggal di sini; tanpa volume
