@@ -490,7 +490,7 @@ model Notifikasi {
 
 model Broadcast {
   id          String   @id @default(cuid())
-  target      String   // SEMUA | ZONA | SALDO_RENDAH | TUNGGAKAN
+  target      String   // SEMUA_WARGA | ZONA | SALDO_RENDAH (TUNGGAKAN lama hanya di baris arsip)
   zona        String?
   judul       String
   pesan       String
