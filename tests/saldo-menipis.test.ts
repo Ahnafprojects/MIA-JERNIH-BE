@@ -99,7 +99,7 @@ describe("periksaSaldoMenipis", () => {
     });
     expect(baris).toHaveLength(1);
     expect(baris[0]?.judul).toBe("Saldo air menipis");
-    expect(baris[0]?.tautan).toBe("/beli");
+    expect(baris[0]?.tautan).toBe(`/beli?meter=${meter.id}`);
   });
 
   it("TIDAK memperingatkan dua kali pada hari yang sama", async () => {
@@ -145,6 +145,44 @@ describe("periksaSaldoMenipis", () => {
       where: { penggunaId: warga.id, jenis: "SALDO" },
     });
     expect(jumlah).toBe(2);
+  });
+
+  it("memperingatkan tiap meter sendiri-sendiri untuk warga dengan dua sambungan", async () => {
+    const warga = await buatWarga(SUREL, 100);
+    const rumah = await buatMeter(warga.id, 40);
+    const kos = await buatMeter(warga.id, 30);
+
+    await expect(periksaSaldoMenipis(rumah.id)).resolves.toBe("DIPERINGATKAN");
+    // Meter kedua TIDAK boleh tertahan oleh peringatan meter pertama.
+    await expect(periksaSaldoMenipis(kos.id)).resolves.toBe("DIPERINGATKAN");
+    await expect(periksaSaldoMenipis(kos.id)).resolves.toBe(
+      "SUDAH_DIPERINGATKAN",
+    );
+
+    const tautan = (
+      await prisma.notifikasi.findMany({
+        where: { penggunaId: warga.id, jenis: "SALDO" },
+        select: { tautan: true },
+      })
+    ).map((b) => b.tautan);
+    expect(tautan.sort()).toEqual(
+      [`/beli?meter=${rumah.id}`, `/beli?meter=${kos.id}`].sort(),
+    );
+  });
+
+  it("menulis satu baris saja walau dua pembacaan tiba bersamaan", async () => {
+    const warga = await buatWarga(SUREL, 100);
+    const meter = await buatMeter(warga.id, 40);
+
+    const hasil = await Promise.all(
+      Array.from({ length: 5 }, () => periksaSaldoMenipis(meter.id)),
+    );
+
+    expect(hasil.filter((h) => h === "DIPERINGATKAN")).toHaveLength(1);
+    const jumlah = await prisma.notifikasi.count({
+      where: { penggunaId: warga.id, jenis: "SALDO" },
+    });
+    expect(jumlah).toBe(1);
   });
 
   it("melewati meter tanpa pemilik", async () => {
