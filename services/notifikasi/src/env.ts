@@ -45,6 +45,13 @@ export const env = {
   /** WhatsApp bisa dimatikan tanpa membongkar apa pun. */
   waAktif: (process.env.WA_AKTIF ?? "true").toLowerCase() !== "false",
 
+  /**
+   * Salinan antrean pesan di disk, supaya pesan yang belum terkirim tidak
+   * hilang saat kontainer dibuat ulang. Harus berada di volume yang sama
+   * dengan sesi WhatsApp.
+   */
+  antreanBerkas: process.env.ANTREAN_BERKAS?.trim() || "/data/antrean.json",
+
   /** Tempat menyimpan kredensial pemasangan WhatsApp. Harus volume. */
   waSesiDir: process.env.WA_SESI_DIR?.trim() || "/data/wa-sesi",
 

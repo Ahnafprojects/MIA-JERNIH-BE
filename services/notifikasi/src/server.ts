@@ -195,7 +195,22 @@ app.post("/telegram/tukar-kode", butuhRahasia, (req, res) => {
   res.json({ chatId: String(chatId) });
 });
 
+/*
+ * Antrean ditulis ke disk saat diminta berhenti. `docker compose up` yang
+ * membuat ulang kontainer mengirim SIGTERM lebih dulu; tanpa penanganan ini
+ * titipan dari 250 ms terakhir belum sempat tersimpan.
+ */
+for (const sinyal of ["SIGINT", "SIGTERM"] as const) {
+  process.on(sinyal, () => {
+    log.info({ sinyal }, "berhenti, antrean disimpan");
+    antrean.simpanSekarang();
+    process.exit(0);
+  });
+}
+
 async function mulai(): Promise<void> {
+  antrean.muat();
+
   // Server HTTP dinyalakan LEBIH DULU, sebelum WhatsApp dan Telegram.
   // Penyambungan WhatsApp bisa memakan puluhan detik dan bisa berakhir
   // menunggu pemindaian QR; kalau server menunggunya, endpoint /qr yang
