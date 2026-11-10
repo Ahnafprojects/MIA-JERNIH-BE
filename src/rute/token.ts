@@ -10,6 +10,7 @@ const { StatusToken, SumberToken } = pkg;
 type StatusToken = (typeof StatusToken)[keyof typeof StatusToken];
 type SumberToken = (typeof SumberToken)[keyof typeof SumberToken];
 import { prisma } from "../lib/prisma.js";
+import { namaAktor } from "../lib/audit.js";
 import { badRequest, forbidden, notFound } from "../lib/errors.js";
 import { dekripsiKode } from "../lib/kode-token.js";
 import { wajibMasuk, wajibPeran } from "../middleware/sesi.js";
@@ -140,7 +141,7 @@ tokenRouter.post("/tukar", wajibMasuk, async (req: Request, res: Response, next:
         prisma.auditLog.create({
           data: {
             aktorId: penggunaId,
-            aktorNama: req.pengguna!.id,
+            aktorNama: await namaAktor(req.pengguna!.id),
             aksi: "TOKEN_DEMO_DITUKAR",
             detail: `Penukaran token demo ${kode} senilai ${tambahL} L pada meter ${meterId}. Saldo baru: ${saldoBaru} L`,
             tipe: "TOKEN",
@@ -258,7 +259,7 @@ tokenRouter.post("/tukar", wajibMasuk, async (req: Request, res: Response, next:
       prisma.auditLog.create({
         data: {
           aktorId: penggunaId,
-          aktorNama: req.pengguna!.id,
+          aktorNama: await namaAktor(req.pengguna!.id),
           aksi: "TOKEN_DITUKAR",
           detail: `Penukaran token senilai ${nilaiL} L pada meter ${meterId}. Saldo baru: ${saldoBaru} L`,
           tipe: "TOKEN",
@@ -387,7 +388,7 @@ tokenRouter.get(
       await prisma.auditLog.create({
         data: {
           aktorId: penggunaId,
-          aktorNama: req.pengguna!.id,
+          aktorNama: await namaAktor(req.pengguna!.id),
           aksi: "LIHAT_KODE_TOKEN",
           detail: `Membuka kode token ${token.id} senilai ${Number(token.nilaiL)} L untuk meter ${token.meterId ?? "-"}.`,
           tipe: "TOKEN",
@@ -485,7 +486,7 @@ adminTokenRouter.post(
       await prisma.auditLog.create({
         data: {
           aktorId: penggunaId,
-          aktorNama: req.pengguna!.id,
+          aktorNama: await namaAktor(req.pengguna!.id),
           aksi: "BUAT_TOKEN_ADMIN",
           detail: `Menerbitkan ${data.jumlah} token senilai ${data.nilaiL} L. Alasan: ${data.alasan}`,
           tipe: "ADMIN",

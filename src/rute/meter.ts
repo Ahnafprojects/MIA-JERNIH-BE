@@ -8,6 +8,7 @@ import rateLimit from "express-rate-limit";
 import pkg from "@prisma/client";
 const { StatusRelay } = pkg;
 import { prisma } from "../lib/prisma.js";
+import { namaAktor } from "../lib/audit.js";
 import { periksaIsiOtomatis } from "../lib/isi-otomatis.js";
 import { periksaSaldoMenipis } from "../lib/saldo-menipis.js";
 import { badRequest, forbidden, notFound } from "../lib/errors.js";
@@ -361,7 +362,7 @@ meterRouter.post("/hubungkan", limiterHubungkan, async (req: Request, res: Respo
       await prisma.auditLog.create({
         data: {
           aktorId: req.pengguna!.id,
-          aktorNama: req.pengguna!.id,
+          aktorNama: await namaAktor(req.pengguna!.id),
           aksi: "METER_HUBUNGKAN_GAGAL",
           detail: `Percobaan hubungkan meter gagal: target "${targetMeter}" tidak ditemukan.`,
           tipe: "METER",
@@ -375,7 +376,7 @@ meterRouter.post("/hubungkan", limiterHubungkan, async (req: Request, res: Respo
       await prisma.auditLog.create({
         data: {
           aktorId: req.pengguna!.id,
-          aktorNama: req.pengguna!.id,
+          aktorNama: await namaAktor(req.pengguna!.id),
           aksi: "METER_HUBUNGKAN_GAGAL",
           detail: `Percobaan hubungkan meter gagal: meter ${meter.id} (${meter.serial}) sudah terhubung ke akun lain.`,
           tipe: "METER",
@@ -396,7 +397,7 @@ meterRouter.post("/hubungkan", limiterHubungkan, async (req: Request, res: Respo
     await prisma.auditLog.create({
       data: {
         aktorId: req.pengguna!.id,
-        aktorNama: req.pengguna!.id,
+        aktorNama: await namaAktor(req.pengguna!.id),
         aksi: "METER_HUBUNGKAN_SUKSES",
         detail: `Meter ${meter.id} (${meter.serial}) berhasil dihubungkan ke akun.`,
         tipe: "METER",
@@ -436,7 +437,7 @@ meterRouter.delete("/:id/hubungkan", async (req: Request, res: Response, next: N
     await prisma.auditLog.create({
       data: {
         aktorId: req.pengguna!.id,
-        aktorNama: req.pengguna!.id,
+        aktorNama: await namaAktor(req.pengguna!.id),
         aksi: "METER_LEPAS_SUKSES",
         detail: `Meter ${meter.id} (${meter.serial}) dilepas dari akun.`,
         tipe: "METER",

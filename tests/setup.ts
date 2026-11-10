@@ -22,9 +22,9 @@ process.env.TOKEN_ENC_KEY = "kunci-uji-enkripsi-kode-token-jernih";
 /*
  * Layanan notifikasi dianggap TERKONFIGURASI selama pengujian.
  *
- * Alasannya sama dengan TOKEN_ENC_KEY di atas: `src/lib/notifikasi.ts`
- * membaca `NOTIFIKASI_URL` dan `NOTIFIKASI_SECRET` saat MODUL DIMUAT, bukan
- * saat fungsinya dipanggil. Menyetelnya di dalam `beforeAll` sebuah tes tidak
+ * Alasannya sama dengan TOKEN_ENC_KEY di atas: `NOTIFIKASI_URL` dan
+ * `NOTIFIKASI_SECRET` dibaca lewat `env()`, yang membaca `process.env` SEKALI
+ * lalu menyimpannya. Menyetelnya di dalam `beforeAll` sebuah tes tidak
  * pernah terbaca, dan `notifikasiAktif()` tetap `false` — sehingga setiap uji
  * tentang penyaringan opt-in akan lolos tanpa menguji apa pun, karena
  * `kabariWarga` keluar lebih awal karena alasan yang salah.

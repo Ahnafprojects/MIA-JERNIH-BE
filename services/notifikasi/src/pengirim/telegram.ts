@@ -1,3 +1,5 @@
+import { randomInt } from "node:crypto";
+
 import { Bot } from "grammy";
 import type { Logger } from "pino";
 
@@ -73,7 +75,7 @@ export class PengirimTelegram implements Pengirim {
 
     bot.command("start", async (ctx) => {
       const chatId = ctx.chat.id;
-      const kode = String(Math.floor(100000 + Math.random() * 900000));
+      const kode = this.buatKode(chatId);
       this.kodePenghubung.set(kode, {
         chatId,
         kedaluwarsa: Date.now() + 10 * 60 * 1000,
@@ -114,6 +116,36 @@ export class PengirimTelegram implements Pengirim {
         this.log.info({ bot: info.username }, "bot Telegram berjalan");
       },
     });
+  }
+
+  /**
+   * Kode penghubung enam digit yang belum dipakai siapa pun.
+   *
+   * Dua hal yang dulu salah di sini:
+   *
+   * 1. `Math.random()` bukan sumber acak kriptografis; keluarannya bisa
+   *    ditebak dari keluaran sebelumnya. Kode ini yang menautkan chat
+   *    Telegram ke akun warga, jadi ia memakai `randomInt` dari node:crypto.
+   * 2. Kode yang kebetulan sama dengan kode warga lain yang masih berlaku
+   *    menimpanya diam-diam, dan warga pertama lalu menautkan akunnya ke chat
+   *    orang lain. Kode yang masih dipegang orang lain kini dilewati.
+   *
+   * Kode lama milik chat yang SAMA dibuang dulu: warga yang menekan Start
+   * dua kali hanya memegang kode terbaru, sehingga kode lama tidak bisa lagi
+   * dipakai siapa pun yang sempat melihatnya.
+   */
+  private buatKode(chatId: number): string {
+    const sekarang = Date.now();
+    for (const [kode, isi] of this.kodePenghubung) {
+      if (isi.chatId === chatId || isi.kedaluwarsa < sekarang) {
+        this.kodePenghubung.delete(kode);
+      }
+    }
+
+    for (;;) {
+      const kode = String(randomInt(100000, 1000000));
+      if (!this.kodePenghubung.has(kode)) return kode;
+    }
   }
 
   /** Dipakai backend untuk menukar kode jadi chat id saat warga menautkan. */

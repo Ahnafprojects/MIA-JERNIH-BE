@@ -83,7 +83,55 @@ const skema = z.object({
    */
   TOKEN_ENC_KEY: z.string().default(""),
 
+  /**
+   * Alamat dan rahasia layanan notifikasi (`services/notifikasi`).
+   *
+   * Keduanya boleh kosong: tanpa layanan itu backend tetap berjalan, hanya
+   * kabar lewat WhatsApp dan Telegram yang dilewati. Yang TIDAK boleh adalah
+   * mengisi salah satunya saja. Sebelumnya keduanya dibaca langsung dari
+   * `process.env` tanpa pemeriksaan, sehingga rahasia yang lupa disalin
+   * membuat setiap kabar ditolak 401 oleh layanan notifikasi dan hilang
+   * diam-diam, tanpa satu pun tanda saat server dinyalakan.
+   */
+  NOTIFIKASI_URL: z
+    .string()
+    .trim()
+    .default("")
+    .refine((v) => v === "" || /^https?:\/\/\S+$/.test(v), {
+      message: "NOTIFIKASI_URL harus berupa alamat http:// atau https://",
+    })
+    .transform((v) => v.replace(/\/+$/, "")),
+  NOTIFIKASI_SECRET: z.string().trim().default(""),
+
+  /**
+   * Channel Telegram untuk pengumuman ke SEMUA warga, mis. `@JernihInfo`.
+   *
+   * Layanan notifikasi sudah menerima tujuan berbentuk `@nama`, tetapi
+   * sebelumnya tidak ada yang mengirim ke sana. Channel hanya dipakai untuk
+   * broadcast bertarget seluruh warga: isinya terbuka untuk siapa pun yang
+   * mengikuti channel, jadi pengumuman yang hanya ditujukan ke satu zona
+   * atau ke warga bersaldo rendah tidak pantas dikirim ke sana.
+   */
+  TELEGRAM_CHANNEL: z
+    .string()
+    .trim()
+    .default("")
+    .refine((v) => v === "" || /^(@[A-Za-z0-9_]{5,}|-100\d+)$/.test(v), {
+      message: "TELEGRAM_CHANNEL harus berupa @namachannel atau id -100…",
+    }),
+
   SEED_PASSWORD: z.string().default("admin123"),
+}).superRefine((cfg, ctx) => {
+  const adaUrl = cfg.NOTIFIKASI_URL !== "";
+  const adaRahasia = cfg.NOTIFIKASI_SECRET !== "";
+  if (adaUrl !== adaRahasia) {
+    ctx.addIssue({
+      code: "custom",
+      path: [adaUrl ? "NOTIFIKASI_SECRET" : "NOTIFIKASI_URL"],
+      message:
+        "NOTIFIKASI_URL dan NOTIFIKASI_SECRET harus diisi berdua atau dikosongkan berdua.",
+    });
+  }
 });
 
 let tersimpan: z.infer<typeof skema> | null = null;

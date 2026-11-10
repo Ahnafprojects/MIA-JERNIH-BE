@@ -1,3 +1,6 @@
+import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { dirname } from "node:path";
+
 import type { Logger } from "pino";
 
 import { env } from "./env.js";
@@ -48,11 +51,109 @@ export class Antrean {
   private readonly sudahDiproses = new Map<string, number>();
   private berjalan = false;
   private readonly pengirim = new Map<Saluran, Pengirim>();
+  /** Pekerjaan yang sedang di tangan pengirim, ikut disimpan ke berkas. */
+  private sedangDikirim: Pekerjaan | null = null;
+  private penandaSimpan: NodeJS.Timeout | null = null;
 
   /** Hitungan untuk /status. Angka yang tidak diukur tidak bisa dipercaya. */
   private statistik = { masuk: 0, terkirim: 0, gagalPermanen: 0, dibuang: 0 };
 
   constructor(private readonly log: Logger) {}
+
+  /* ── Ketahanan terhadap restart ──────────────────────────────────────
+   *
+   * Antrean ini dulunya hanya hidup di memori. Kontainernya dibuat ulang
+   * pada SETIAP push ke `main`, dan setiap pembuatan ulang membuang pesan
+   * yang masih antre, termasuk yang sedang menunggu WhatsApp tersambung
+   * kembali. Yang hilang paling sering justru yang paling ditunggu: struk
+   * berisi kode token yang baru dibeli.
+   *
+   * Sekarang isinya disalin ke `ANTREAN_BERKAS` di volume `/data`, yang
+   * sama dengan tempat sesi WhatsApp, lalu dibaca lagi saat layanan mulai.
+   * Kunci idempotensi ikut disimpan, supaya backend yang mengirim ulang
+   * titipan sesudah restart tidak membuat pesan kedua.
+   *
+   * Penulisannya atomik (berkas sementara lalu `rename`). Tanpa itu, proses
+   * yang mati di tengah penulisan meninggalkan JSON terpotong, dan layanan
+   * gagal membaca antreannya sendiri saat menyala lagi.
+   */
+
+  /** Pulihkan isi antrean dari berkas. Dipanggil sekali saat layanan mulai. */
+  muat(): void {
+    let mentah: string;
+    try {
+      mentah = readFileSync(env.antreanBerkas, "utf8");
+    } catch {
+      return; // Belum pernah disimpan: antrean memang kosong.
+    }
+
+    try {
+      const isi = JSON.parse(mentah) as {
+        pekerjaan?: Pekerjaan[];
+        sudahDiproses?: [string, number][];
+      };
+      for (const p of isi.pekerjaan ?? []) {
+        if (!this.pekerjaan.some((x) => x.id === p.id)) this.pekerjaan.push(p);
+      }
+      for (const [kunci, waktu] of isi.sudahDiproses ?? []) {
+        this.sudahDiproses.set(kunci, waktu);
+      }
+      this.bersihkanIdemLama();
+      this.log.info(
+        { antre: this.pekerjaan.length, berkas: env.antreanBerkas },
+        "antrean dipulihkan dari berkas",
+      );
+    } catch (e) {
+      // Berkas rusak tidak boleh menghentikan layanan. Pesan lama hilang,
+      // tetapi pesan baru tetap bisa dikirim.
+      this.log.error(
+        { err: String(e), berkas: env.antreanBerkas },
+        "berkas antrean tidak terbaca, mulai dari kosong",
+      );
+    }
+
+    if (this.pekerjaan.length > 0) void this.proses();
+  }
+
+  /** Tulis segera. Dipakai saat layanan diminta berhenti. */
+  simpanSekarang(): void {
+    if (this.penandaSimpan) {
+      clearTimeout(this.penandaSimpan);
+      this.penandaSimpan = null;
+    }
+
+    const isi = JSON.stringify({
+      pekerjaan: this.sedangDikirim
+        ? [this.sedangDikirim, ...this.pekerjaan]
+        : this.pekerjaan,
+      sudahDiproses: [...this.sudahDiproses.entries()],
+    });
+
+    try {
+      mkdirSync(dirname(env.antreanBerkas), { recursive: true });
+      const sementara = `${env.antreanBerkas}.tmp`;
+      writeFileSync(sementara, isi, "utf8");
+      renameSync(sementara, env.antreanBerkas);
+    } catch (e) {
+      this.log.error(
+        { err: String(e), berkas: env.antreanBerkas },
+        "antrean gagal disimpan ke berkas",
+      );
+    }
+  }
+
+  /**
+   * Tulis sebentar lagi. Broadcast ke ratusan warga menitipkan ratusan
+   * pesan dalam satu detik; menulis berkas sekali per pesan hanya membebani
+   * disk tanpa menambah keamanan apa pun.
+   */
+  private simpanNanti(): void {
+    if (this.penandaSimpan) return;
+    this.penandaSimpan = setTimeout(() => {
+      this.penandaSimpan = null;
+      this.simpanSekarang();
+    }, 250);
+  }
 
   daftarkan(p: Pengirim): void {
     this.pengirim.set(p.saluran, p);
@@ -91,6 +192,7 @@ export class Antrean {
       jalankanPada: Date.now(),
     });
     this.statistik.masuk += 1;
+    this.simpanNanti();
     void this.proses();
     return true;
   }
@@ -147,7 +249,14 @@ export class Antrean {
           continue;
         }
 
-        const hasil = await this.kirimBerbatas(pengirim, kerja);
+        this.sedangDikirim = kerja;
+        let hasil: HasilKirim;
+        try {
+          hasil = await this.kirimBerbatas(pengirim, kerja);
+        } finally {
+          this.sedangDikirim = null;
+          this.simpanNanti();
+        }
 
         if (hasil.terkirim) {
           this.sudahDiproses.set(kerja.id, Date.now());
@@ -240,6 +349,7 @@ export class Antrean {
   }
 
   private tundaUlang(kerja: Pekerjaan, alasan: string): void {
+    this.simpanNanti();
     kerja.percobaan += 1;
 
     if (kerja.percobaan >= env.maksPercobaan) {

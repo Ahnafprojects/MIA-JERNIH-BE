@@ -10,10 +10,18 @@ type Peran = (typeof Peran)[keyof typeof Peran];
 type StatusInsiden = (typeof StatusInsiden)[keyof typeof StatusInsiden];
 type StatusRelay = (typeof StatusRelay)[keyof typeof StatusRelay];
 import { prisma } from "../lib/prisma.js";
-import { notFound } from "../lib/errors.js";
+import { namaAktor } from "../lib/audit.js";
+import {
+  TARGET_BROADCAST,
+  wargaSasaranBroadcast,
+} from "../lib/sasaran-broadcast.js";
+import { badRequest, notFound } from "../lib/errors.js";
 import { wajibMasuk, wajibPeran } from "../middleware/sesi.js";
 import { emailBroadcast, kirimEmail } from "../lib/email.js";
-import { kabariLewatTelegram } from "../lib/notifikasi.js";
+import {
+  kabariChannelTelegram,
+  kabariLewatTelegram,
+} from "../lib/notifikasi.js";
 import { deretHarian, perZonaNeraca, ringkasNeraca } from "../lib/neraca.js";
 
 export const konsolRouter: Router = Router();
@@ -611,7 +619,7 @@ konsolRouter.post("/pelanggan/:id/email", async (req: Request, res: Response, ne
     await prisma.auditLog.create({
       data: {
         aktorId: req.pengguna!.id,
-        aktorNama: req.pengguna!.id,
+        aktorNama: await namaAktor(req.pengguna!.id),
         aksi: "KIRIM_EMAIL_PELANGGAN",
         detail: `Kirim email ke ${pelanggan.email} dengan subjek: "${subjek}"`,
         tipe: "ADMIN",
@@ -746,7 +754,7 @@ konsolRouter.post(
       await prisma.auditLog.create({
         data: {
           aktorId: req.pengguna!.id,
-          aktorNama: req.pengguna!.id,
+          aktorNama: await namaAktor(req.pengguna!.id),
           aksi: "KONFIGURASI_METER",
           detail: `Memperbarui konfigurasi ${data.meterIds.length} meter (${data.meterIds.join(", ")}). Alasan: ${data.alasan}`,
           tipe: "METER",
@@ -875,8 +883,14 @@ konsolRouter.get("/audit", async (req: Request, res: Response, next: NextFunctio
 const skemaBroadcast = z.object({
   judul: z.string().trim().min(3, "Judul broadcast minimal 3 karakter."),
   pesan: z.string().trim().min(5, "Pesan broadcast minimal 5 karakter."),
-  target: z.string().default("SEMUA_WARGA"),
-  zona: z.string().optional(),
+  /* `SEMUA` diterima sebagai nama lama dari `SEMUA_WARGA`. */
+  target: z
+    .preprocess(
+      (v) => (v === "SEMUA" ? "SEMUA_WARGA" : v),
+      z.enum(TARGET_BROADCAST, { message: "Target penerima tidak dikenal." }),
+    )
+    .default("SEMUA_WARGA"),
+  zona: z.string().trim().optional().transform((v) => v || undefined),
   kanal: z.object({
     push: z.boolean().default(true),
     email: z.boolean().default(false),
@@ -884,14 +898,30 @@ const skemaBroadcast = z.object({
        komentar kolom `kanalTelegram` di prisma/schema.prisma. */
     telegram: z.boolean().default(false),
   }),
-});
+})
+  .refine((d) => d.target !== "ZONA" || d.zona !== undefined, {
+    path: ["zona"],
+    message: "Pilih zona penerima.",
+  })
+  .refine((d) => d.kanal.push || d.kanal.email || d.kanal.telegram, {
+    path: ["kanal"],
+    message: "Pilih sedikitnya satu kanal pengiriman.",
+  });
 
 konsolRouter.get("/broadcast", async (_req: Request, res: Response, next: NextFunction) => {
   try {
-    const list = await prisma.broadcast.findMany({
-      orderBy: { dibuatPada: "desc" },
-      include: { pembuat: { select: { nama: true } } },
-    });
+    const [list, zona] = await Promise.all([
+      prisma.broadcast.findMany({
+        orderBy: { dibuatPada: "desc" },
+        include: { pembuat: { select: { nama: true } } },
+      }),
+      /* Untuk pilihan "Per zona" di formulir. Tanpa daftar ini operator
+         harus mengetik id zona berbentuk cuid dengan tangan. */
+      prisma.zona.findMany({
+        orderBy: { nama: "asc" },
+        select: { id: true, nama: true },
+      }),
+    ]);
 
     // Bentuk datar: kanalPush dan kanalEmail
     res.status(200).json({
@@ -909,6 +939,7 @@ konsolRouter.get("/broadcast", async (_req: Request, res: Response, next: NextFu
         pembuat: b.pembuat.nama,
         dibuatPada: b.dibuatPada.toISOString(),
       })),
+      zona,
     });
   } catch (err) {
     next(err);
@@ -920,15 +951,21 @@ konsolRouter.post("/broadcast", async (req: Request, res: Response, next: NextFu
     const data = skemaBroadcast.parse(req.body);
     const pembuatId = req.pengguna!.id;
 
-    // Ambil warga sasaran
-    const targetWarga = await prisma.pengguna.findMany({
-      where: {
-        peran: Peran.WARGA,
-        ...(data.zona ? { zonaId: data.zona } : {}),
-      },
-    });
-
+    const targetWarga = await wargaSasaranBroadcast(data.target, data.zona);
     const penerimaCount = targetWarga.length;
+
+    /*
+     * Broadcast tanpa penerima ditolak, bukan disimpan dengan angka nol.
+     * Riwayat yang mencatat "terkirim ke 0 warga" terbaca seperti kegagalan
+     * sistem, padahal yang terjadi hanya sasarannya kosong, dan operator
+     * perlu tahu itu SEBELUM menganggap pengumumannya sudah sampai.
+     */
+    if (penerimaCount === 0) {
+      throw badRequest(
+        "BROADCAST_TANPA_PENERIMA",
+        "Tidak ada warga yang cocok dengan target ini. Pengumuman tidak dikirim.",
+      );
+    }
 
     const broadcast = await prisma.broadcast.create({
       data: {
@@ -997,12 +1034,25 @@ konsolRouter.post("/broadcast", async (req: Request, res: Response, next: NextFu
           `${data.judul}\n\n${data.pesan}`,
         );
       }
+
+      /*
+       * Channel pengumuman, SEKALI per siaran, hanya untuk target seluruh
+       * warga tanpa saringan zona. Channel terbuka bagi siapa pun yang
+       * mengikutinya, jadi pengumuman yang hanya untuk satu zona atau untuk
+       * warga bersaldo rendah tidak boleh ikut terbit di sana.
+       */
+      if (data.target === "SEMUA_WARGA" && !data.zona) {
+        void kabariChannelTelegram(
+          `broadcast:${broadcast.id}`,
+          `${data.judul}\n\n${data.pesan}`,
+        );
+      }
     }
 
     await prisma.auditLog.create({
       data: {
         aktorId: pembuatId,
-        aktorNama: req.pengguna!.id,
+        aktorNama: await namaAktor(req.pengguna!.id),
         aksi: "KIRIM_BROADCAST",
         detail: `Kirim siaran pengumuman "${data.judul}" kepada ${penerimaCount} warga.`,
         tipe: "BROADCAST",
@@ -1067,7 +1117,7 @@ konsolRouter.patch(
       await prisma.auditLog.create({
         data: {
           aktorId: req.pengguna!.id,
-          aktorNama: req.pengguna!.id,
+          aktorNama: await namaAktor(req.pengguna!.id),
           aksi: "UBAH_PERAN_TIM",
           detail: `Mengubah peran ${updated.nama} menjadi ${peranBaru}`,
           tipe: "TIM",
@@ -1124,7 +1174,7 @@ konsolRouter.patch(
       await prisma.auditLog.create({
         data: {
           aktorId: req.pengguna!.id,
-          aktorNama: req.pengguna!.id,
+          aktorNama: await namaAktor(req.pengguna!.id),
           aksi: "UBAH_TARIF",
           detail: `Mengubah tarif golongan ${updated.nama} menjadi Rp ${tarifBaru}/L. Alasan: ${alasan}`,
           tipe: "TARIF",

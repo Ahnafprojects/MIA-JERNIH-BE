@@ -9,6 +9,7 @@ import pkg from "@prisma/client";
 const { StatusTiket } = pkg;
 type StatusTiket = (typeof StatusTiket)[keyof typeof StatusTiket];
 import { prisma } from "../lib/prisma.js";
+import { namaAktor } from "../lib/audit.js";
 import { badRequest, forbidden, notFound } from "../lib/errors.js";
 import { wajibMasuk, wajibPeran } from "../middleware/sesi.js";
 import { emailTiketDiperbarui, kirimEmail } from "../lib/email.js";
@@ -305,7 +306,7 @@ tiketRouter.post(
       await prisma.auditLog.create({
         data: {
           aktorId: pelaporId,
-          aktorNama: req.pengguna!.id,
+          aktorNama: await namaAktor(req.pengguna!.id),
           aksi: `TIKET_VALIDASI_${keyakinan.keyakinan}`,
           detail: [
             `Tiket ${tiket.nomor}: keyakinan lokasi ${keyakinan.keyakinan} (sumber ${keyakinan.sumber}).`,
@@ -607,7 +608,7 @@ adminTiketRouter.patch(
       await prisma.auditLog.create({
         data: {
           aktorId: req.pengguna!.id,
-          aktorNama: req.pengguna!.id,
+          aktorNama: await namaAktor(req.pengguna!.id),
           aksi: `TIKET_${statusBaru}`,
           detail: `Status tiket ${tiket.nomor} diubah dari ${statusLama} ke ${statusBaru}.${catatan ? ` Catatan: ${catatan}` : ""}`,
           tipe: "TIKET",

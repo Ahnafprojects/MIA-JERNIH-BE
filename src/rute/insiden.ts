@@ -8,6 +8,7 @@ import pkg from "@prisma/client";
 const { Keparahan, StatusInsiden, StatusRelay } = pkg;
 type StatusInsiden = (typeof StatusInsiden)[keyof typeof StatusInsiden];
 import { prisma } from "../lib/prisma.js";
+import { namaAktor } from "../lib/audit.js";
 import { notFound } from "../lib/errors.js";
 import { wajibMasuk, wajibPeran } from "../middleware/sesi.js";
 
@@ -195,7 +196,7 @@ adminInsidenRouter.patch("/:id", async (req: Request, res: Response, next: NextF
     await prisma.auditLog.create({
       data: {
         aktorId: req.pengguna!.id,
-        aktorNama: req.pengguna!.id,
+        aktorNama: await namaAktor(req.pengguna!.id),
         aksi: `INSIDEN_${statusBaru}`,
         detail: `Mengubah status insiden ${insiden.id} (${insiden.judul}) menjadi ${statusBaru}.`,
         tipe: "INSIDEN",
