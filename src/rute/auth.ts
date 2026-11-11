@@ -102,6 +102,21 @@ const skemaDaftar = z.object({
   email: z.string().trim().email("Format email tidak valid.").toLowerCase(),
   hp: z.string().trim().optional(),
   kataSandi: z.string().min(8, "Kata sandi minimal 8 karakter."),
+  /*
+   * Persetujuan WhatsApp, ditanyakan di tempat nomornya diminta.
+   *
+   * Sebelumnya formulir pendaftaran meminta "Nomor Ponsel (WhatsApp /
+   * Telepon)" lalu menyimpannya ke kolom `hp` saja. Kolom itu tidak pernah
+   * dibaca pengirim WhatsApp, yang membaca `waNomor` dan `waOptIn`.
+   * Akibatnya warga memberikan nomornya, membaca kata "WhatsApp" pada
+   * labelnya, dan tetap tidak menerima apa pun — lalu harus mengetik nomor
+   * yang sama sekali lagi di halaman Akun.
+   *
+   * Persetujuannya tetap HARUS eksplisit dan terpisah dari pengisian
+   * nomor. Memberi nomor supaya bisa dihubungi petugas bukan izin untuk
+   * dikirimi pesan otomatis.
+   */
+  waSetuju: z.boolean().optional(),
 });
 
 const skemaVerifikasi = z.object({
@@ -195,6 +210,15 @@ authRouter.post("/daftar", async (req: Request, res: Response, next: NextFunctio
     const sandiHash = await hashSandi(data.kataSandi);
     let penggunaId = penggunaAda?.id;
 
+    /*
+     * `null` bila tidak disetujui ATAU nomornya tidak bisa dinormalkan.
+     * Nomor yang tidak sah tidak boleh diam-diam menyalakan WhatsApp:
+     * warga akan mengira kabarnya aktif padahal tidak ada yang bisa
+     * dikirimi.
+     */
+    const nomorWa =
+      data.waSetuju && data.hp ? normalkanNomorWa(data.hp) : null;
+
     if (penggunaAda) {
       // Perbarui sandi akun yang belum sempat verifikasi
       await prisma.pengguna.update({
@@ -203,6 +227,7 @@ authRouter.post("/daftar", async (req: Request, res: Response, next: NextFunctio
           nama: data.nama,
           kataSandiHash: sandiHash,
           hp: data.hp ?? null,
+          ...(nomorWa ? { waNomor: nomorWa, waOptIn: true } : {}),
         },
       });
     } else {
@@ -212,6 +237,7 @@ authRouter.post("/daftar", async (req: Request, res: Response, next: NextFunctio
           email: data.email,
           kataSandiHash: sandiHash,
           hp: data.hp ?? null,
+          ...(nomorWa ? { waNomor: nomorWa, waOptIn: true } : {}),
         },
       });
       penggunaId = penggunaBaru.id;
@@ -1086,7 +1112,12 @@ const skemaTautTelegram = z.object({
 async function keadaanNotifikasi(penggunaId: string) {
   const pengguna = await prisma.pengguna.findUnique({
     where: { id: penggunaId },
-    select: { waNomor: true, waOptIn: true, telegramChatId: true },
+    select: {
+      hp: true,
+      waNomor: true,
+      waOptIn: true,
+      telegramChatId: true,
+    },
   });
 
   if (!pengguna) {
@@ -1094,6 +1125,12 @@ async function keadaanNotifikasi(penggunaId: string) {
   }
 
   return {
+    /*
+     * Nomor dari pendaftaran. Dikirim supaya halaman Akun dapat
+     * mengisikannya lebih dulu, alih-alih menyuruh warga mengetik ulang
+     * nomor yang sudah pernah ia berikan.
+     */
+    hpTerdaftar: pengguna.hp,
     whatsapp: {
       nomor: pengguna.waNomor,
       aktif: pengguna.waOptIn,
