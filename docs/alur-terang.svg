@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 300" width="1000" height="300" role="img" aria-label="Alur permintaan backend Jernih: permintaan masuk melewati gerbang, identitas, pemeriksaan bentuk, lalu basis data; kejadian yang dihasilkan dititipkan ke antrean kabar menuju email, WhatsApp, dan Telegram.">
+<style>
+  text { font-family: ui-sans-serif,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif; fill: #0a3647; }
+  .judul { font-size: 13px; font-weight: 700; letter-spacing: .01em; }
+  .ket   { font-size: 11px; fill: #46626c; }
+  .kecil { font-size: 10px; fill: #46626c; letter-spacing: .04em; }
+  .kotak { fill: #ffffff; stroke: #b2cbd2; stroke-width: 1.25; }
+  .isi   { fill: #e8f0f2; stroke: #b2cbd2; stroke-width: 1.25; }
+  .utama { fill: #0a6b85; stroke: #0b4a5e; stroke-width: 1.25; }
+  .judul-balik { font-size: 13px; font-weight: 700; fill: #ffffff; }
+  .ket-balik   { font-size: 11px; fill: #ffffff; opacity: .82; }
+  .jalur { fill: none; stroke: #b2cbd2; stroke-width: 1.5; }
+  .nadi  { fill: none; stroke: #00b3b3; stroke-width: 2.25;
+            stroke-linecap: round; stroke-dasharray: 26 1000;
+            animation: alir 5.6s linear infinite; }
+  .titik { fill: #00b3b3; }
+
+  @keyframes alir { from { stroke-dashoffset: 26; }
+                     to   { stroke-dashoffset: -1000; } }
+  @keyframes pulse {
+    0%, 5.0%, 100% { stroke: #b2cbd2; stroke-width: 1.25; }
+    2.1% { stroke: #00b3b3; stroke-width: 2.25; }
+  }
+
+  .t0 { animation: pulse 5.6s 0.00s infinite; }
+  .t1 { animation: pulse 5.6s 0.80s infinite; }
+  .t2 { animation: pulse 5.6s 1.60s infinite; }
+  .t3 { animation: pulse 5.6s 2.40s infinite; }
+  .t4 { animation: pulse 5.6s 3.20s infinite; }
+  .t5 { animation: pulse 5.6s 4.00s infinite; }
+  .t6 { animation: pulse 5.6s 4.80s infinite; }
+
+  /* Seluruh keterangan tetap terbaca tanpa gerakan. */
+  @media (prefers-reduced-motion: reduce) {
+    .nadi, .t0, .t1, .t2, .t3, .t4, .t5, .t6 { animation: none; }
+    .nadi { stroke-dasharray: none; opacity: .45; }
+  }
+</style>
+<text x="28" y="30" class="kecil">PERJALANAN SATU PERMINTAAN</text>
+<path d="M28 85.0 H972" class="nadi"/>
+<rect x="28" y="58" width="184" height="54" rx="9" class="kotak t0"/><text x="120.0" y="82.0" text-anchor="middle" class="judul">Permintaan</text><text x="120.0" y="98.0" text-anchor="middle" class="ket">HTTP / WebSocket</text><path d="M212 85.0 H211" class="jalur"/><path d="M205 80.5 l6 4.5 l-6 4.5" fill="none" stroke="#b2cbd2" stroke-width="1.5"/><rect x="218" y="58" width="184" height="54" rx="9" class="isi t1"/><text x="310.0" y="82.0" text-anchor="middle" class="judul">Gerbang</text><text x="310.0" y="98.0" text-anchor="middle" class="ket">rate limit, helmet, CORS</text><path d="M402 85.0 H401" class="jalur"/><path d="M395 80.5 l6 4.5 l-6 4.5" fill="none" stroke="#b2cbd2" stroke-width="1.5"/><rect x="408" y="58" width="184" height="54" rx="9" class="isi t2"/><text x="500.0" y="82.0" text-anchor="middle" class="judul">Identitas</text><text x="500.0" y="98.0" text-anchor="middle" class="ket">JWT 15 menit, peran</text><path d="M592 85.0 H591" class="jalur"/><path d="M585 80.5 l6 4.5 l-6 4.5" fill="none" stroke="#b2cbd2" stroke-width="1.5"/><rect x="598" y="58" width="184" height="54" rx="9" class="isi t3"/><text x="690.0" y="82.0" text-anchor="middle" class="judul">Bentuk</text><text x="690.0" y="98.0" text-anchor="middle" class="ket">skema Zod per rute</text><path d="M782 85.0 H781" class="jalur"/><path d="M775 80.5 l6 4.5 l-6 4.5" fill="none" stroke="#b2cbd2" stroke-width="1.5"/><rect x="788" y="58" width="184" height="54" rx="9" class="utama t4"/><text x="880.0" y="82.0" text-anchor="middle" class="judul-balik">Prisma</text><text x="880.0" y="98.0" text-anchor="middle" class="ket-balik">PostgreSQL 17</text><rect x="408" y="196" width="196" height="50" rx="9" class="isi t5"/><text x="506.0" y="218.0" text-anchor="middle" class="judul">Antrean kabar</text><text x="506.0" y="234.0" text-anchor="middle" class="ket">coba ulang, idempoten</text><rect x="640" y="196" width="160" height="50" rx="9" class="kotak t6"/><text x="720.0" y="218.0" text-anchor="middle" class="judul">WhatsApp</text><text x="720.0" y="234.0" text-anchor="middle" class="ket">hanya yang menyetujui</text><rect x="818" y="196" width="160" height="50" rx="9" class="kotak t6"/><text x="898.0" y="218.0" text-anchor="middle" class="judul">Telegram</text><text x="898.0" y="234.0" text-anchor="middle" class="ket">pribadi dan channel</text><rect x="218" y="196" width="160" height="50" rx="9" class="kotak t5"/><text x="298.0" y="218.0" text-anchor="middle" class="judul">Email</text><text x="298.0" y="234.0" text-anchor="middle" class="ket">selalu, tanpa izin</text><path d="M880 112 V170 H506 V196" class="jalur"/><path d="M604 221 H633" class="jalur"/><path d="M408 221 H385" class="jalur"/><path d="M770 170 V170 H898 V196" class="jalur"/>
+<text x="28" y="286" class="ket">Kejadian yang lahir dari permintaan dititipkan ke antrean, bukan dikirim di tempat. Kegagalan mengirim pesan tidak pernah membatalkan perubahan yang memicunya.</text>
+</svg>

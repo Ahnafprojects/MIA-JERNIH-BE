@@ -2,6 +2,12 @@
 
 API untuk platform transparansi layanan air PDAM. Warga memantau pemakaian, saldo, dan pengaduannya lewat meter air prabayar, sementara data layanan dan kinerja instansi terbuka untuk publik tanpa perlu akun.
 
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/alur-gelap.svg">
+  <img alt="Alur permintaan: masuk lewat gerbang pembatas laju, pemeriksaan identitas, pemeriksaan bentuk, lalu basis data. Kejadian yang lahir darinya dititipkan ke antrean kabar menuju email, WhatsApp, dan Telegram." src="docs/alur-terang.svg" width="100%">
+</picture>
+
 Dibuat untuk **Web In Action — Multimedia In Action (MIA) 2026**.
 
 Tiga sub-tema yang dipilih, beserta bagian yang mewujudkannya:
@@ -18,7 +24,7 @@ Tiga sub-tema yang dipilih, beserta bagian yang mewujudkannya:
 | --- | --- |
 | API produksi | <https://api.jernih.biz.id> ([health check](https://api.jernih.biz.id/health)) |
 | Frontend | <https://jernih.biz.id> ([repositori](https://github.com/Ahnafprojects/MIA-JERNIH-FE)) |
-| Pengujian | 179 tes dalam 24 berkas, seluruhnya lolos |
+| Pengujian | 195 tes dalam 26 berkas, seluruhnya lolos |
 
 ## Daftar isi
 
@@ -191,7 +197,7 @@ Backend sudah selesai dan berjalan di produksi. Seluruh endpoint yang dibutuhkan
 | Selesai | Endpoint publik: status layanan, lacak, kinerja, statistik, neraca air, unduhan, peta |
 | Selesai | WebSocket dengan isolasi kamar dan pemeriksaan hak akses |
 | Selesai | Penyebaran otomatis lewat GitHub Actions dan Cloudflare Tunnel |
-| Selesai | 179 tes integrasi, `tsc` dan `eslint` bersih |
+| Selesai | 195 tes integrasi, `tsc` dan `eslint` bersih |
 | Berjalan | Pemantauan dan pencatatan terstruktur di produksi |
 
 ## Akun demo
@@ -599,7 +605,7 @@ MIA-JERNIH-BE/
 │   ├── env.ts                  Validasi konfigurasi, gagal saat start
 │   ├── server.ts               Entrypoint HTTP dan graceful shutdown
 │   └── ws.ts                   Manajer WebSocket dan broadcast kamar
-├── tests/                      24 berkas tes integrasi
+├── tests/                      26 berkas tes integrasi
 ├── Dockerfile                  Build multi-stage
 ├── docker-compose.example.yml  Compose untuk pengembangan dan basis data uji
 └── tsconfig.json
