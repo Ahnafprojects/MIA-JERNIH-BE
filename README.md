@@ -469,16 +469,38 @@ Dipisah dengan sengaja. Soket WhatsApp memegang sesi yang hidup terus dan bisa m
 
 ### Pembagian saluran
 
-| Kejadian | Email | WhatsApp | Telegram |
-| --- | --- | --- | --- |
-| Status tiket berubah | ya | ya | ya |
-| Pembelian lunas | ya | ya | ya |
-| Saldo menipis, satu kali per meter per hari | ya, kecuali dimatikan di Pengaturan konsol | ya | ya |
-| Siaran pengumuman | ya | tidak | ya |
+| Kejadian | Dalam aplikasi | Email | WhatsApp | Telegram pribadi | Telegram channel |
+| --- | --- | --- | --- | --- | --- |
+| Status tiket berubah | — | ya | ya | ya | tidak |
+| Pembelian lunas | — | ya | ya | ya | tidak |
+| Saldo menipis, satu kali per meter per hari | ya | ya, kecuali dimatikan di Pengaturan konsol | ya | ya | tidak |
+| Siaran pengumuman | ya | ya | **tidak** | ya | ya |
+
+Dua kolom Telegram, bukan satu, sebab keduanya menuntut hal yang berbeda
+dari warga. **Telegram pribadi** hanya menerima setelah warga menekan Start
+di bot lalu menempelkan kodenya di portal. **Telegram channel** tidak
+menuntut apa pun: siapa saja boleh mengikutinya, termasuk yang bukan
+pelanggan. Satu kolom "Telegram: ya" menyembunyikan perbedaan itu, dan
+pembacanya bisa menyiapkan peragaan yang tidak mungkin berhasil.
+
+Tiga baris pertama adalah kejadian PRIBADI, yang isinya hanya menyangkut
+satu warga. Karena itu tidak satu pun terbit di channel: channel dibaca
+siapa saja, dan status tiket milik seseorang bukan untuk dibaca umum.
+
+Tanda "—" pada kolom pertama bukan kelalaian penulisan, melainkan keadaan
+yang sebenarnya: baris `Notifikasi` hanya ditulis di dua tempat, yaitu
+`lib/saldo-menipis.ts` dan jalur siaran di `rute/konsol.ts`. Perubahan
+status tiket dan pelunasan pembelian dikabarkan lewat email, WhatsApp, dan
+Telegram, tetapi tidak meninggalkan jejak di kotak notifikasi aplikasi.
+Warga yang membuka portalnya setelah tiketnya ditangani tidak menemukan
+apa-apa di sana. Layak ditutup, dan dicatat di sini supaya tidak terbaca
+sebagai sesuatu yang sudah berjalan.
 
 WhatsApp sengaja tidak dipakai untuk siaran massal. Pengirimnya menahan laju 2,5 detik per pesan agar tidak terbaca sebagai robot, sehingga ratusan pelanggan berarti belasan menit pengiriman beruntun dari satu nomor bisnis sungguhan. Telegram menerimanya per warga yang menautkan akun, dan, bila `TELEGRAM_CHANNEL` diisi, satu kiriman ke channel pengumuman untuk broadcast ke seluruh warga.
 
-Warga mendaftarkan nomornya sendiri lewat lima endpoint di bawah `/api/me/notifikasi`. Kolom `Pengguna.waOptIn` bawaannya `false` dan hanya warga yang boleh menyalakannya. Kolom `Pengguna.telegramChatId` hanya bisa terisi setelah warga menekan Start di bot, sehingga keberadaannya sudah merupakan persetujuan.
+Persetujuan WhatsApp dapat diberikan di dua tempat, dan keduanya menuntut centang yang terpisah dari pengisian nomor. Pertama, saat mendaftar: `POST /api/auth/daftar` menerima `waSetuju`, dan bila disetujui sekaligus nomornya bisa dinormalkan, `waNomor` serta `waOptIn` ikut terisi. Nomor yang tidak sah tidak menyalakan apa pun, sebab halaman Akun akan menyatakan WhatsApp aktif padahal tidak ada pesan yang bisa sampai. Kedua, kapan saja lewat lima endpoint di bawah `/api/me/notifikasi`.
+
+Kolom `Pengguna.hp` dan `Pengguna.waNomor` sengaja terpisah. `hp` dipakai petugas untuk menghubungi warga; `waNomor` adalah tujuan pesan otomatis. Memberi nomor supaya bisa dihubungi bukan izin untuk dikirimi pesan otomatis. `GET /api/me/notifikasi` mengirim `hpTerdaftar` supaya halaman Akun dapat mengisikan nomor yang sudah pernah diberikan, tanpa menyuruh warga mengetiknya dua kali. Kolom `Pengguna.waOptIn` bawaannya `false` dan hanya warga yang boleh menyalakannya. Kolom `Pengguna.telegramChatId` hanya bisa terisi setelah warga menekan Start di bot, sehingga keberadaannya sudah merupakan persetujuan.
 
 ## Format jawaban galat
 
